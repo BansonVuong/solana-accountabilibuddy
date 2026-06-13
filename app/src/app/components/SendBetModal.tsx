@@ -6,10 +6,12 @@ import {
   Users, AlertCircle, CheckCircle2
 } from "lucide-react";
 import { Avatar, Pill, Mono } from "./ui";
+import { getScoreboard, type ScoreboardGame, type SportKind } from "../../lib/relayer";
 
 /* ── Types ─────────────────────────────────────────────── */
 export type BetType = "PERSONAL" | "DEV";
-export type BetCurrency = "POINTS" | "SOL";
+/** Sub-mode for DEV bets: AI git inspector vs. external ESPN sports result. */
+export type DevMode = "ai-git" | "sports";
 
 export interface NewBet {
   type:       BetType;
@@ -17,8 +19,18 @@ export interface NewBet {
   acceptor:   string;
   terms:      string;
   stake:      string;
-  currency:   BetCurrency;
+  currency:   "SOL";
+  // Present for DEV "sports" bets, settled by the ESPN scraper.
+  sport?:     SportKind;
+  gameId?:    string;
+  backsHome?: boolean;
+  homeTeam?:  string;
+  awayTeam?:  string;
 }
+
+const SPORT_LABELS: Record<SportKind, string> = {
+  nba: "NBA", nfl: "NFL", soccer: "Soccer",
+};
 
 interface SendBetModalProps {
   open:       boolean;
@@ -44,72 +56,72 @@ function StepDot({ active, done }: { active: boolean; done: boolean }) {
   );
 }
 
-/* ── Currency button ───────────────────────────────────── */
-function CurrencyBtn({
-  value, selected, onClick,
-}: { value: BetCurrency; selected: boolean; onClick: () => void }) {
-  const isSOL = value === "SOL";
-  const accent = isSOL ? "#9945FF" : "#FFB800";
-
-  return (
-    <motion.button
-      whileHover={{ scale: 1.02 }}
-      whileTap={{ scale: 0.97 }}
-      onClick={onClick}
-      className="flex-1 py-3 px-4 rounded-xl border transition-all duration-200 flex items-center gap-3"
-      style={{
-        background:  selected ? (isSOL ? "rgba(153,69,255,0.1)" : "rgba(255,184,0,0.1)") : "var(--muted)",
-        borderColor: selected ? accent : "var(--border)",
-        boxShadow:   selected ? `0 0 0 1px ${accent}33` : "none",
-      }}
-    >
-      <span style={{ fontSize: 20 }}>{isSOL ? "◎" : "🏆"}</span>
-      <div className="text-left">
-        <p className="text-foreground" style={{ fontSize: "13px", fontWeight: 700 }}>{value}</p>
-        <p className="text-muted-foreground" style={{ fontSize: "10px" }}>
-          {isSOL ? "On-chain · Solana" : "Platform points"}
-        </p>
-      </div>
-      {selected && (
-        <CheckCircle2 size={14} className="ml-auto" style={{ color: accent }} />
-      )}
-    </motion.button>
-  );
-}
-
 /* ── Main modal ────────────────────────────────────────── */
 export function SendBetModal({
   open, onClose, onSend, groupName, groupMembers,
 }: SendBetModalProps) {
   const [step,     setStep]     = useState(0);            // 0=type, 1=terms, 2=stake, 3=confirm
   const [betType,  setBetType]  = useState<BetType>("PERSONAL");
+  const [devMode,  setDevMode]  = useState<DevMode>("ai-git");
   const [acceptor, setAcceptor] = useState("");
   const [terms,    setTerms]    = useState("");
   const [stake,    setStake]    = useState("");
-  const [currency, setCurrency] = useState<BetCurrency>("POINTS");
   const [sent,     setSent]     = useState(false);
   const inputRef   = useRef<HTMLTextAreaElement>(null);
   const hasChallengeTargets = groupMembers.length > 0;
+
+  // ── sports bet picker state ──────────────────────────────
+  const [sport,        setSport]        = useState<SportKind>("nba");
+  const [games,        setGames]        = useState<ScoreboardGame[]>([]);
+  const [loadingGames, setLoadingGames] = useState(false);
+  const [gamesError,   setGamesError]   = useState<string | null>(null);
+  const [selectedGame, setSelectedGame] = useState<ScoreboardGame | null>(null);
+  const [backsHome,    setBacksHome]    = useState(true);
+
+  const isSports = betType === "DEV" && devMode === "sports";
+  const backedTeam = selectedGame ? (backsHome ? selectedGame.homeTeam : selectedGame.awayTeam) : "";
+  const sportsTerms = selectedGame
+    ? `${SPORT_LABELS[sport]}: ${selectedGame.awayTeam} @ ${selectedGame.homeTeam} — I back ${backedTeam}. Settled by the final ESPN result.`
+    : "";
 
   /* reset when closed */
   useEffect(() => {
     if (!open) {
       setTimeout(() => {
-        setStep(0); setBetType("PERSONAL"); setAcceptor("");
-        setTerms(""); setStake(""); setCurrency("POINTS"); setSent(false);
+        setStep(0); setBetType("PERSONAL"); setDevMode("ai-git"); setAcceptor("");
+        setTerms(""); setStake(""); setSent(false);
+        setSport("nba"); setGames([]); setGamesError(null); setSelectedGame(null); setBacksHome(true);
       }, 300);
     }
   }, [open]);
 
-  /* focus terms textarea on step 1 */
+  /* load today's games whenever the sports picker is active and the sport changes */
   useEffect(() => {
-    if (step === 1 && inputRef.current) {
+    if (!open || !isSports) return;
+    let alive = true;
+    setLoadingGames(true);
+    setGamesError(null);
+    setSelectedGame(null);
+    getScoreboard(sport)
+      .then((res) => { if (alive) setGames(res.games); })
+      .catch((err) => { if (alive) setGamesError(err instanceof Error ? err.message : String(err)); })
+      .finally(() => { if (alive) setLoadingGames(false); });
+    return () => { alive = false; };
+  }, [open, isSports, sport]);
+
+  /* focus terms textarea on step 1 (witness/ai-git bets only) */
+  useEffect(() => {
+    if (step === 1 && !isSports && inputRef.current) {
       setTimeout(() => inputRef.current?.focus(), 120);
     }
-  }, [step]);
+  }, [step, isSports]);
 
-  const canStep1 = hasChallengeTargets && (betType === "DEV" ? true : acceptor.trim().length > 0);
-  const canStep2 = terms.trim().length > 8;
+  const canStep1 = hasChallengeTargets && (
+    isSports ? selectedGame !== null
+    : betType === "DEV" ? true
+    : acceptor.trim().length > 0
+  );
+  const canStep2 = isSports ? selectedGame !== null : terms.trim().length > 8;
   const canStep3 = stake.trim().length > 0 && Number(stake) > 0;
 
   function handleSend() {
@@ -119,9 +131,16 @@ export function SendBetModal({
       type:     betType,
       challenger: "Me",
       acceptor: betType === "DEV" ? (acceptor || "anyone") : acceptor,
-      terms:    terms.trim(),
+      terms:    isSports ? sportsTerms : terms.trim(),
       stake:    stake,
-      currency,
+      currency: "SOL",
+      ...(isSports && selectedGame ? {
+        sport,
+        gameId:   selectedGame.gameId,
+        backsHome,
+        homeTeam: selectedGame.homeTeam,
+        awayTeam: selectedGame.awayTeam,
+      } : {}),
     });
     setTimeout(onClose, 1800);
   }
@@ -283,6 +302,131 @@ export function SendBetModal({
                       ))}
                     </div>
 
+                    {/* DEV sub-mode — AI Git vs. external sports result */}
+                    {betType === "DEV" && (
+                      <motion.div
+                        initial={{ opacity: 0, y: 8 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className="space-y-3"
+                      >
+                        <Mono className="text-muted-foreground uppercase" style={{ fontSize: "9px", letterSpacing: "0.1em" } as React.CSSProperties}>
+                          How is it verified?
+                        </Mono>
+                        <div className="grid grid-cols-2 gap-2">
+                          {([
+                            { id: "ai-git" as DevMode, label: "AI Git", desc: "Inspector scans the repo" },
+                            { id: "sports" as DevMode, label: "Sports", desc: "ESPN final result" },
+                          ]).map(m => (
+                            <button
+                              key={m.id}
+                              onClick={() => setDevMode(m.id)}
+                              className="p-3 rounded-xl border text-left transition-all duration-150"
+                              style={{
+                                background:  devMode === m.id ? "rgba(20,241,149,0.08)" : "var(--muted)",
+                                borderColor: devMode === m.id ? "rgba(20,241,149,0.4)" : "var(--border)",
+                              }}
+                            >
+                              <p className="text-foreground" style={{ fontSize: "12px", fontWeight: 700 }}>{m.label}</p>
+                              <p className="text-muted-foreground" style={{ fontSize: "10px" }}>{m.desc}</p>
+                            </button>
+                          ))}
+                        </div>
+
+                        {/* Sports picker */}
+                        {isSports && (
+                          <div className="space-y-3">
+                            {/* Sport tabs */}
+                            <div className="flex gap-1.5">
+                              {(["nba", "nfl", "soccer"] as SportKind[]).map(s => (
+                                <button
+                                  key={s}
+                                  onClick={() => setSport(s)}
+                                  className="flex-1 py-1.5 rounded-lg border transition-all duration-150"
+                                  style={{
+                                    background:  sport === s ? "rgba(153,69,255,0.12)" : "var(--muted)",
+                                    borderColor: sport === s ? "rgba(153,69,255,0.4)" : "var(--border)",
+                                    color:       sport === s ? "#9945FF" : "var(--muted-foreground)",
+                                    fontSize: "11px", fontWeight: sport === s ? 700 : 500,
+                                  }}
+                                >
+                                  {SPORT_LABELS[s]}
+                                </button>
+                              ))}
+                            </div>
+
+                            {/* Games list */}
+                            <div className="max-h-44 overflow-y-auto space-y-1.5 pr-1">
+                              {loadingGames && (
+                                <p className="text-muted-foreground text-center py-3" style={{ fontSize: "11px" }}>Loading games…</p>
+                              )}
+                              {gamesError && (
+                                <p className="text-center py-3" style={{ fontSize: "11px", color: "#FF7E7E" }}>{gamesError}</p>
+                              )}
+                              {!loadingGames && !gamesError && games.length === 0 && (
+                                <p className="text-muted-foreground text-center py-3" style={{ fontSize: "11px" }}>
+                                  No {SPORT_LABELS[sport]} games on the board right now.
+                                </p>
+                              )}
+                              {games.map(g => {
+                                const picked = selectedGame?.gameId === g.gameId;
+                                return (
+                                  <button
+                                    key={g.gameId}
+                                    disabled={g.isFinal}
+                                    onClick={() => { setSelectedGame(g); setBacksHome(true); }}
+                                    className="w-full px-3 py-2 rounded-lg border text-left transition-all duration-150 disabled:opacity-40"
+                                    style={{
+                                      background:  picked ? "rgba(153,69,255,0.1)" : "var(--muted)",
+                                      borderColor: picked ? "rgba(153,69,255,0.45)" : "var(--border)",
+                                    }}
+                                  >
+                                    <div className="flex items-center justify-between gap-2">
+                                      <span className="text-foreground truncate" style={{ fontSize: "12px", fontWeight: 600 }}>
+                                        {g.awayTeam} @ {g.homeTeam}
+                                      </span>
+                                      <Mono className="text-muted-foreground shrink-0" style={{ fontSize: "9px" } as React.CSSProperties}>
+                                        {g.isFinal ? "FINAL" : (g.status || "—")}
+                                      </Mono>
+                                    </div>
+                                  </button>
+                                );
+                              })}
+                            </div>
+
+                            {/* Side picker */}
+                            {selectedGame && (
+                              <div className="space-y-1.5">
+                                <Mono className="text-muted-foreground uppercase" style={{ fontSize: "9px", letterSpacing: "0.1em" } as React.CSSProperties}>
+                                  Which side are you backing?
+                                </Mono>
+                                <div className="grid grid-cols-2 gap-2">
+                                  {([
+                                    { home: false, team: selectedGame.awayTeam },
+                                    { home: true,  team: selectedGame.homeTeam },
+                                  ]).map(opt => (
+                                    <button
+                                      key={opt.team}
+                                      onClick={() => setBacksHome(opt.home)}
+                                      className="px-3 py-2 rounded-lg border text-left transition-all duration-150"
+                                      style={{
+                                        background:  backsHome === opt.home ? "rgba(20,241,149,0.1)" : "var(--muted)",
+                                        borderColor: backsHome === opt.home ? "rgba(20,241,149,0.45)" : "var(--border)",
+                                      }}
+                                    >
+                                      <Mono className="text-muted-foreground block" style={{ fontSize: "8px" } as React.CSSProperties}>
+                                        {opt.home ? "HOME" : "AWAY"}
+                                      </Mono>
+                                      <span className="text-foreground truncate block" style={{ fontSize: "12px", fontWeight: 700 }}>{opt.team}</span>
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </motion.div>
+                    )}
+
                     {/* Acceptor picker — PERSONAL only */}
                     {betType === "PERSONAL" && (
                       <motion.div
@@ -334,6 +478,33 @@ export function SendBetModal({
                     transition={{ duration: 0.2 }}
                     className="px-5 py-5 space-y-4"
                   >
+                    {isSports ? (
+                      <div className="space-y-3">
+                        <p className="text-muted-foreground" style={{ fontSize: "12px" }}>
+                          This bet settles automatically from the final ESPN result — no terms to write.
+                        </p>
+                        <div
+                          className="rounded-xl border p-4 space-y-3"
+                          style={{ background: "rgba(153,69,255,0.05)", borderColor: "rgba(153,69,255,0.25)" }}
+                        >
+                          <Mono className="text-muted-foreground uppercase" style={{ fontSize: "9px", letterSpacing: "0.1em" } as React.CSSProperties}>
+                            {SPORT_LABELS[sport]} · Game #{selectedGame?.gameId}
+                          </Mono>
+                          <p className="text-foreground" style={{ fontSize: "15px", fontWeight: 700 }}>
+                            {selectedGame?.awayTeam} @ {selectedGame?.homeTeam}
+                          </p>
+                          <div className="flex items-center gap-2">
+                            <Mono className="text-muted-foreground" style={{ fontSize: "10px" } as React.CSSProperties}>YOU BACK</Mono>
+                            <span className="px-2 py-0.5 rounded-md" style={{ background: "rgba(20,241,149,0.12)", color: "#14F195", fontSize: "12px", fontWeight: 700 }}>
+                              {backedTeam}
+                            </span>
+                          </div>
+                          <p className="text-muted-foreground leading-snug" style={{ fontSize: "11px" }}>
+                            The opponent automatically backs {backsHome ? selectedGame?.awayTeam : selectedGame?.homeTeam}. The oracle pays out the winner once the game is final.
+                          </p>
+                        </div>
+                      </div>
+                    ) : (
                     <div>
                       <p className="text-muted-foreground mb-3" style={{ fontSize: "12px" }}>
                         Describe the bet in clear, specific terms. This becomes the on-chain record.
@@ -381,8 +552,9 @@ export function SendBetModal({
                         </div>
                       </div>
                     </div>
+                    )}
 
-                    {betType === "DEV" && (
+                    {betType === "DEV" && !isSports && (
                       <motion.div
                         initial={{ opacity: 0, y: 6 }}
                         animate={{ opacity: 1, y: 0 }}
@@ -412,13 +584,8 @@ export function SendBetModal({
                     className="px-5 py-5 space-y-4"
                   >
                     <p className="text-muted-foreground" style={{ fontSize: "12px" }}>
-                      What goes into escrow if the bet is accepted?
+                      How much SOL goes into on-chain escrow if the bet is accepted?
                     </p>
-
-                    <div className="flex gap-2">
-                      <CurrencyBtn value="POINTS" selected={currency === "POINTS"} onClick={() => setCurrency("POINTS")} />
-                      <CurrencyBtn value="SOL"    selected={currency === "SOL"}    onClick={() => setCurrency("SOL")} />
-                    </div>
 
                     <div>
                       <Mono className="text-muted-foreground uppercase mb-2 block" style={{ fontSize: "9px", letterSpacing: "0.1em" } as React.CSSProperties}>
@@ -432,21 +599,19 @@ export function SendBetModal({
                           boxShadow:   stake.length > 0 && Number(stake) > 0 ? "0 0 0 1px rgba(153,69,255,0.1)" : "none",
                         }}
                       >
-                        <span style={{ color: currency === "SOL" ? "#9945FF" : "#FFB800", fontSize: "18px" }}>
-                          {currency === "SOL" ? "◎" : "🏆"}
-                        </span>
+                        <span style={{ color: "#9945FF", fontSize: "18px" }}>◎</span>
                         <input
                           type="number"
                           min="0"
-                          step={currency === "SOL" ? "0.01" : "100"}
+                          step="0.01"
                           value={stake}
                           onChange={e => setStake(e.target.value)}
-                          placeholder={currency === "SOL" ? "0.25" : "1000"}
+                          placeholder="0.25"
                           className="flex-1 bg-transparent text-foreground placeholder:text-muted-foreground outline-none"
                           style={{ fontSize: "22px", fontWeight: 800, fontFamily: "'Inter', sans-serif" }}
                         />
                         <Mono className="text-muted-foreground shrink-0" style={{ fontSize: "12px" } as React.CSSProperties}>
-                          {currency}
+                          SOL
                         </Mono>
                       </div>
                     </div>
@@ -463,7 +628,7 @@ export function SendBetModal({
                       >
                         <Lock size={11} style={{ color: "#9945FF", flexShrink: 0 }} />
                         <p className="text-muted-foreground" style={{ fontSize: "11px" }}>
-                          <span className="text-foreground font-semibold">{stake} {currency}</span> will be locked on both sides when the acceptor confirms.
+                          <span className="text-foreground font-semibold">{stake} SOL</span> will be locked on both sides when the acceptor confirms.
                         </p>
                       </motion.div>
                     )}
@@ -570,7 +735,7 @@ export function SendBetModal({
                                 fontFamily: "'JetBrains Mono', monospace",
                               }}
                             >
-                              {stake} {currency}
+                              {stake} SOL
                             </span>
                             <span className="text-muted-foreground" style={{ fontSize: "11px" }}>
                               locked per side on acceptance

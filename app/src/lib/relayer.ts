@@ -39,10 +39,12 @@ export interface GameResult {
 }
 
 export interface ScoreboardGame {
-  id: string;
-  name: string;
-  shortName: string;
+  gameId: string;
+  homeTeam: string;
+  awayTeam: string;
   status: string;
+  isFinal: boolean;
+  startTime?: string;
 }
 
 export type Sport = "soccer" | "nba" | "nfl";
@@ -280,7 +282,19 @@ export interface Bet {
   createSig?: string;
   acceptSig?: string;
   settleSig?: string;
+  // ── external-validation (DEV "sports") bets ──────────────────────────────────
+  /** Present for DEV bets settled by the ESPN scraper instead of witness votes. */
+  validation?: "sports";
+  sport?: SportKind;
+  espnGameId?: string;
+  homeTeam?: string;
+  awayTeam?: string;
+  /** True when the challenger backs the home side. */
+  challengerBacksHome?: boolean;
 }
+
+/** Alias for the ESPN sport union (see {@link Sport}). */
+export type SportKind = Sport;
 
 export interface Player {
   rank: number;
@@ -343,9 +357,15 @@ export function createBet(input: {
   acceptor: string;
   terms: string;
   stake: string;
-  currency: "POINTS" | "SOL";
+  currency: "SOL";
   witnesses?: number;
   minBettors?: number;
+  // DEV "sports" bets: settled by the ESPN scraper.
+  sport?: SportKind;
+  gameId?: string;
+  backsHome?: boolean;
+  homeTeam?: string;
+  awayTeam?: string;
 }): Promise<{ bet: Bet; message: ChatMessage }> {
   return req("/bets", { method: "POST", body: JSON.stringify(input) });
 }

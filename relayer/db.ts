@@ -61,8 +61,20 @@ export interface BetDoc {
   groupSize: number;
   /** Witness votes keyed by voter name/handle. */
   votesByVoter?: Record<string, "challenger" | "acceptor">;
-  /** Winning side once witness quorum is met. */
+  /** Winning side once witness quorum is met (or the ESPN scraper settles a sports bet). */
   resolvedWinner?: "challenger" | "acceptor";
+  // ── external-validation (DEV "sports") bets ──────────────────────────────────
+  /** Set for DEV bets resolved by the ESPN scraper instead of witness votes. */
+  validation?: "sports";
+  /** ESPN sport for a sports bet. */
+  sport?: "soccer" | "nba" | "nfl";
+  /** ESPN game id (numeric string) the scraper settles against. */
+  espnGameId?: string;
+  /** Team display names for the chosen game (for card rendering). */
+  homeTeam?: string;
+  awayTeam?: string;
+  /** True when the challenger (on-chain creator) backs the home side. */
+  challengerBacksHome?: boolean;
   /** User who accepted the challenge and activated the bet. */
   acceptedBy?: string;
   /** Unix ms when the challenge was accepted. */

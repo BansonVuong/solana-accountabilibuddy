@@ -177,7 +177,9 @@ function EmbeddedBetCard({
     && bet.challenger.toLowerCase() !== voterName.toLowerCase()
     && isAddressedToViewer
     && !isAccepting;
-  const canVote = bet.status === "ACTIVE" && !isResolved && !winner && !isVoting;
+  // Sports bets are settled by the ESPN scraper, not witness votes.
+  const isSports = bet.validation === "sports";
+  const canVote = !isSports && bet.status === "ACTIVE" && !isResolved && !winner && !isVoting;
 
   return (
     <div className="w-full max-w-[420px] rounded-2xl border border-border overflow-hidden bg-card">
@@ -211,7 +213,9 @@ function EmbeddedBetCard({
 
       <div className="px-4 pb-3 flex items-center justify-between">
         <Mono className="text-muted-foreground" style={{ fontSize: "10px" } as React.CSSProperties}>
-          quorum {witnessThreshold} · votes {votes.challenger}-{votes.acceptor}
+          {isSports
+            ? `ESPN ${(bet.sport ?? "").toUpperCase()} · auto-settled`
+            : `quorum ${witnessThreshold} · votes ${votes.challenger}-${votes.acceptor}`}
         </Mono>
         <Mono className="text-muted-foreground" style={{ fontSize: "10px" } as React.CSSProperties}>
           #{bet.id.toUpperCase()}
@@ -219,6 +223,7 @@ function EmbeddedBetCard({
       </div>
 
       <div className="px-4 pb-4 space-y-2.5">
+        {!isSports && (
         <div className="flex items-center gap-2">
           <div className="flex-1 h-1.5 rounded-full bg-muted overflow-hidden">
             <div
@@ -233,6 +238,7 @@ function EmbeddedBetCard({
             {votes.total}/{witnessThreshold}
           </Mono>
         </div>
+        )}
 
         {winner || isResolved ? (
           <div className="rounded-lg px-3 py-2 border border-[#14F195]/25 bg-[#14F195]/8">
@@ -252,6 +258,12 @@ function EmbeddedBetCard({
               </span>
             </div>
           )
+        ) : isSports ? (
+          <div className="rounded-lg border border-[#9945FF]/25 bg-[#9945FF]/8 px-3 py-2">
+            <span className="text-[#9945FF]" style={{ fontSize: "11px", fontWeight: 700 }}>
+              Locked — awaiting final {(bet.sport ?? "game").toUpperCase()} result
+            </span>
+          </div>
         ) : (
           <div className="grid grid-cols-2 gap-2">
             <motion.button
@@ -621,11 +633,19 @@ export function ChatView({ currentUser }: { currentUser: AuthUser }) {
       acceptor: normalizedAcceptor,
       terms: bet.terms.trim(),
       stake: bet.stake.trim(),
-      currency: bet.currency,
+      currency: "SOL",
       // Quorum: at least 2 witnesses, and never fewer than 50% (rounded up).
       // e.g. 2->2, 3->2, 4->2, 5->3, 6->3.
       witnesses: Math.max(2, Math.ceil(activeGroupData.members / 2)),
       minBettors: 2,
+      // DEV "sports" bets: settled by the ESPN scraper instead of witnesses.
+      ...(bet.sport ? {
+        sport: bet.sport,
+        gameId: bet.gameId,
+        backsHome: bet.backsHome,
+        homeTeam: bet.homeTeam,
+        awayTeam: bet.awayTeam,
+      } : {}),
     })
       .then(async () => {
         await refreshMessages(groupId);
