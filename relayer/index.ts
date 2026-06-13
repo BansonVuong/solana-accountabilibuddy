@@ -5,6 +5,10 @@
 //   SOLANA_RPC_URL    RPC endpoint           (default devnet)
 //   PORT              HTTP port              (default 8787)
 //   POLL_INTERVAL_MS  crank interval ms      (default 60_000)
+//   MONGODB_URI       Mongo connection string (optional; enables data routes)
+//   MONGODB_DB        Mongo database name     (default "accountabilibuddy")
+
+import "dotenv/config";
 
 import fs from "fs";
 import http from "http";
@@ -13,6 +17,9 @@ import path from "path";
 import { AnchorProvider, Program, Wallet, web3 } from "@anchor-lang/core";
 
 import { fetchGameResult, fetchScoreboard, type Sport } from "./scraper";
+import {
+  isDbConfigured, groups, messages, bets, players, type MessageDoc,
+} from "./db";
 import idl from "../target/idl/accountability.json";
 import type { Accountability } from "../target/types/accountability";
 
@@ -90,6 +97,39 @@ async function crankTimeouts(): Promise<void> {
   }
 }
 
+// ── sports bet helpers ────────────────────────────────────────────────────────
+
+const SPORT_NAMES: Sport[] = ["soccer", "nba", "nfl"];
+
+// Decode a [u8; 32] zero-padded game id back into a string.
+function decodeGameId(raw: ArrayLike<number>): string {
+  const buf    = Buffer.from(raw as number[]);
+  const nullAt = buf.indexOf(0);
+  return buf.slice(0, nullAt === -1 ? 32 : nullAt).toString("utf8");
+}
+
+// Turn an on-chain sportsBet account into a JSON-friendly object for the dashboard.
+function decodeSportsBet(
+  pubkey: web3.PublicKey,
+  bet: Awaited<ReturnType<typeof program.account.sportsBet.fetch>>,
+): Record<string, unknown> {
+  const state = "open" in bet.state ? "open" : "locked" in bet.state ? "locked" : "settled";
+  return {
+    pubkey:           pubkey.toBase58(),
+    creator:          bet.creator.toBase58(),
+    opponent:         bet.opponent ? bet.opponent.toBase58() : null,
+    amountLamports:   bet.amount.toNumber(),
+    amountSol:        bet.amount.toNumber() / web3.LAMPORTS_PER_SOL,
+    oracle:           bet.oraclePubkey.toBase58(),
+    sport:            SPORT_NAMES[bet.sport as number] ?? "soccer",
+    gameId:           decodeGameId(bet.gameId),
+    creatorBacksHome: bet.creatorBacksHome,
+    startTime:        bet.startTime.toNumber(),
+    settleAfter:      bet.settleAfter.toNumber(),
+    state,
+  };
+}
+
 // ── sports bet crank (scraper-powered) ───────────────────────────────────────
 
 async function crankSportsBets(): Promise<void> {
@@ -106,13 +146,10 @@ async function crankSportsBets(): Promise<void> {
     if (!bet.opponent) continue;
 
     // Decode game_id ([u8; 32], zero-padded) back to a string
-    const raw    = Buffer.from(bet.gameId);
-    const nullAt = raw.indexOf(0);
-    const gameId = raw.slice(0, nullAt === -1 ? 32 : nullAt).toString("utf8");
+    const gameId = decodeGameId(bet.gameId);
 
     // sport is stored as a u8 enum: 0=soccer, 1=nba, 2=nfl
-    const sportMap: Sport[] = ["soccer", "nba", "nfl"];
-    const sport: Sport = sportMap[bet.sport as number] ?? "soccer";
+    const sport: Sport = SPORT_NAMES[bet.sport as number] ?? "soccer";
 
     let result;
     try {
@@ -159,13 +196,22 @@ async function crankSportsBets(): Promise<void> {
 
 const server = http.createServer(async (req, res) => {
   try {
+    // CORS preflight (browser dashboard calls these endpoints directly)
+    if (req.method === "OPTIONS") {
+      res.writeHead(204, corsHeaders());
+      return res.end();
+    }
+
     // GET /health
     if (req.method === "GET" && req.url === "/health") {
+      const slot = await connection.getSlot("confirmed").catch(() => 0);
       return json(res, 200, {
         ok: true,
         oracle:  oracle.publicKey.toBase58(),
         program: program.programId.toBase58(),
         rpc:     RPC_URL,
+        slot,
+        db:      isDbConfigured() ? "configured" : "unconfigured",
       });
     }
 
@@ -178,13 +224,16 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, { commitmentId: body.commitmentId, signature, explorer: explorerUrl(signature) });
     }
 
-    // GET /scoreboard?sport=nba|nfl|soccer  — list today's games + IDs
+    // GET /scoreboard?sport=nba|nfl|soccer[&league=worldcup]  — today's games + IDs
+    // For soccer, an optional league narrows the board (e.g. worldcup, ucl, epl).
     if (req.method === "GET" && req.url?.startsWith("/scoreboard")) {
-      const sport = (new URL(req.url, "http://x").searchParams.get("sport") ?? "nba") as Sport;
+      const params = new URL(req.url, "http://x").searchParams;
+      const sport  = (params.get("sport") ?? "nba") as Sport;
+      const league = params.get("league") ?? undefined;
       if (!["soccer", "nba", "nfl"].includes(sport))
         return json(res, 400, { error: "sport must be soccer | nba | nfl" });
-      const games = await fetchScoreboard(sport);
-      return json(res, 200, { sport, games });
+      const games = await fetchScoreboard(sport, league);
+      return json(res, 200, { sport, league: league ?? null, games });
     }
 
     // GET /game?sport=nba&id=401584793  — check one game's result
@@ -197,10 +246,82 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, { result });
     }
 
+    // GET /sports-bets  — all on-chain sports bets (1v1 / group-chat wagers)
+    if (req.method === "GET" && req.url?.startsWith("/sports-bets")) {
+      const all = await program.account.sportsBet.all();
+      const bets = all.map(({ publicKey, account }) => decodeSportsBet(publicKey, account));
+      return json(res, 200, { bets });
+    }
+
     // POST /settle-bet  — manually trigger crank
     if (req.method === "POST" && req.url === "/settle-bet") {
       await crankSportsBets();
       return json(res, 200, { ok: true });
+    }
+
+    // ── MongoDB-backed dashboard data ─────────────────────────────────────────
+    // All of these return 503 (with a clear message) until MONGODB_URI is set,
+    // so the frontend keeps using its design fixtures until the DB is wired up.
+
+    // GET /groups  — group-chat list
+    if (req.method === "GET" && req.url === "/groups") {
+      const col = await groups();
+      if (!col) return dbUnconfigured(res);
+      const docs = await col.find({}, { projection: { _id: 0 } }).toArray();
+      return json(res, 200, { groups: docs });
+    }
+
+    // GET /messages?group=1  — messages for a group (chronological)
+    if (req.method === "GET" && req.url?.startsWith("/messages")) {
+      const col = await messages();
+      if (!col) return dbUnconfigured(res);
+      const groupId = new URL(req.url, "http://x").searchParams.get("group") ?? "1";
+      const docs = await col
+        .find({ groupId }, { projection: { _id: 0 } })
+        .sort({ createdAt: 1 })
+        .toArray();
+      return json(res, 200, { messages: docs });
+    }
+
+    // POST /messages  { groupId, sender, initials, text }  — append a chat message
+    if (req.method === "POST" && req.url === "/messages") {
+      const col = await messages();
+      if (!col) return dbUnconfigured(res);
+      const body = await readJson(req);
+      if (typeof body.groupId !== "string" || typeof body.sender !== "string")
+        return json(res, 400, { error: "groupId and sender are required" });
+      const doc: MessageDoc = {
+        id:        `m-${Date.now()}`,
+        groupId:   body.groupId,
+        sender:    body.sender,
+        initials:  String(body.initials ?? body.sender).slice(0, 2).toUpperCase(),
+        text:      typeof body.text === "string" ? body.text : undefined,
+        system:    false,
+        ts:        new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+        createdAt: Date.now(),
+      };
+      await col.insertOne(doc);
+      const { ...out } = doc;
+      return json(res, 201, { message: out });
+    }
+
+    // GET /bets  — all bets
+    if (req.method === "GET" && req.url === "/bets") {
+      const col = await bets();
+      if (!col) return dbUnconfigured(res);
+      const docs = await col.find({}, { projection: { _id: 0 } }).toArray();
+      return json(res, 200, { bets: docs });
+    }
+
+    // GET /leaderboard  — players ranked by $PALS
+    if (req.method === "GET" && req.url === "/leaderboard") {
+      const col = await players();
+      if (!col) return dbUnconfigured(res);
+      const docs = await col
+        .find({}, { projection: { _id: 0 } })
+        .sort({ pals: -1 })
+        .toArray();
+      return json(res, 200, { players: docs });
     }
 
     return json(res, 404, { error: "not found" });
@@ -249,9 +370,21 @@ function readJson(req: http.IncomingMessage): Promise<Record<string, unknown>> {
   });
 }
 
+function corsHeaders(): Record<string, string> {
+  return {
+    "access-control-allow-origin":  "*",
+    "access-control-allow-methods": "GET, POST, OPTIONS",
+    "access-control-allow-headers": "content-type",
+  };
+}
+
 function json(res: http.ServerResponse, status: number, body: Record<string, unknown>): void {
-  res.writeHead(status, { "content-type": "application/json" });
+  res.writeHead(status, { "content-type": "application/json", ...corsHeaders() });
   res.end(JSON.stringify(body));
+}
+
+function dbUnconfigured(res: http.ServerResponse): void {
+  json(res, 503, { error: "MongoDB not configured. Set MONGODB_URI to enable this route." });
 }
 
 function explorerUrl(sig: string): string {

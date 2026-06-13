@@ -32,4 +32,45 @@ pub mod accountability {
     pub fn timeout(ctx: Context<Timeout>) -> Result<()> {
         resolve::process_timeout(ctx)
     }
+
+    // ── sports bets (ESPN-oracle settled, no witness needed) ──────────────────
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn create_bet(
+        ctx: Context<CreateBet>,
+        amount: u64,
+        oracle_pubkey: Pubkey,
+        sport: u8,
+        game_id: [u8; 32],
+        creator_backs_home: bool,
+        start_time: i64,
+        settle_after: i64,
+    ) -> Result<()> {
+        sports_bet::process_create_bet(
+            ctx,
+            amount,
+            oracle_pubkey,
+            sport,
+            game_id,
+            creator_backs_home,
+            start_time,
+            settle_after,
+        )
+    }
+
+    pub fn accept_bet(ctx: Context<AcceptBet>) -> Result<()> {
+        sports_bet::process_accept_bet(ctx)
+    }
+
+    pub fn cancel_bet(ctx: Context<CancelBet>) -> Result<()> {
+        sports_bet::process_cancel_bet(ctx)
+    }
+
+    pub fn back_out(ctx: Context<BackOut>) -> Result<()> {
+        sports_bet::process_back_out(ctx)
+    }
+
+    pub fn settle_bet(ctx: Context<SettleBet>, home_won: Option<bool>) -> Result<()> {
+        sports_bet::process_settle_bet(ctx, home_won)
+    }
 }

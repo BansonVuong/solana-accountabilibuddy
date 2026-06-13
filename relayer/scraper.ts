@@ -45,6 +45,27 @@ const SCOREBOARD_URL: Record<Sport, string> = {
   nfl:    "https://www.espn.com/nfl/scoreboard",
 };
 
+// Soccer is organized by competition. ESPN exposes per-league scoreboards at
+// /soccer/scoreboard/_/league/<slug>. World Cup lives under "fifa.world".
+// Game IDs are global, so fetchGameResult() doesn't need the league — only the
+// scoreboard listing does, to narrow down to a single competition.
+export const SOCCER_LEAGUES: Record<string, string> = {
+  worldcup:           "fifa.world",
+  worldcup_qual_uefa: "fifa.worldq.uefa",
+  ucl:                "uefa.champions",
+  epl:                "eng.1",
+  laliga:             "esp.1",
+  mls:                "usa.1",
+};
+
+function scoreboardUrl(sport: Sport, league?: string): string {
+  if (sport === "soccer" && league) {
+    const slug = SOCCER_LEAGUES[league] ?? league; // accept a raw ESPN slug too
+    return `https://www.espn.com/soccer/scoreboard/_/league/${slug}`;
+  }
+  return SCOREBOARD_URL[sport];
+}
+
 // Statuses ESPN uses for completed games
 const FINAL_STATUSES = new Set([
   "final", "ft", "full time", "final/ot", "final/so",
@@ -203,8 +224,11 @@ export interface ScoreboardGame {
  * Scrape the scoreboard index for a sport and return today's games.
  * Useful for letting users pick a game ID without knowing it in advance.
  */
-export async function fetchScoreboard(sport: Sport): Promise<ScoreboardGame[]> {
-  const url = SCOREBOARD_URL[sport];
+export async function fetchScoreboard(
+  sport: Sport,
+  league?: string,
+): Promise<ScoreboardGame[]> {
+  const url = scoreboardUrl(sport, league);
   const html = await fetchPage(url);
   const blob = extractEspnFitt(html);
   if (!blob) return [];

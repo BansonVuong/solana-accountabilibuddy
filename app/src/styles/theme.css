@@ -1,0 +1,196 @@
+@custom-variant dark (&:is(.dark *));
+
+/* ─── Light Mode ─────────────────────────────── */
+:root {
+  --font-size: 16px;
+
+  --background:          #F8FAFC;
+  --foreground:          #0F172A;
+  --card:                #FFFFFF;
+  --card-foreground:     #0F172A;
+  --popover:             #FFFFFF;
+  --popover-foreground:  #0F172A;
+
+  --primary:             #7C3AED;
+  --primary-foreground:  #FFFFFF;
+  --secondary:           #F1F5F9;
+  --secondary-foreground:#334155;
+  --muted:               #F1F5F9;
+  --muted-foreground:    #64748B;
+  --accent:              #EDE9FE;
+  --accent-foreground:   #5B21B6;
+
+  --destructive:         #FF4A4A;
+  --destructive-foreground: #FFFFFF;
+
+  --border:              #E2E8F0;
+  --input:               #F1F5F9;
+  --input-background:    #F1F5F9;
+  --switch-background:   #CBD5E1;
+
+  --ring:                #7C3AED;
+  --radius:              0.5rem;
+
+  --font-weight-medium:  500;
+  --font-weight-normal:  400;
+
+  /* Chart tokens */
+  --chart-1: #7C3AED;
+  --chart-2: #10B981;
+  --chart-3: #F59E0B;
+  --chart-4: #EF4444;
+  --chart-5: #3B82F6;
+
+  /* Sidebar */
+  --sidebar:                  #F8FAFC;
+  --sidebar-foreground:       #0F172A;
+  --sidebar-primary:          #7C3AED;
+  --sidebar-primary-foreground:#FFFFFF;
+  --sidebar-accent:           #EDE9FE;
+  --sidebar-accent-foreground:#5B21B6;
+  --sidebar-border:           #E2E8F0;
+  --sidebar-ring:             #7C3AED;
+
+  /* Brand tokens (always accessible, both modes) */
+  --sol-purple:  #9945FF;
+  --sol-teal:    #14F195;
+  --crimson:     #FF4A4A;
+  --amber-gold:  #FFB800;
+  --obsidian:    #0B0F19;
+  --steel-blue:  #161D30;
+  --hairline:    #24324F;
+  --secondary-text: #8A99AD;
+  --disabled-text:  #43536A;
+}
+
+/* ─── Dark Mode ──────────────────────────────── */
+.dark {
+  --background:          #0B0F19;
+  --foreground:          #FFFFFF;
+  --card:                #161D30;
+  --card-foreground:     #FFFFFF;
+  --popover:             #1A2338;
+  --popover-foreground:  #FFFFFF;
+
+  --primary:             #9945FF;
+  --primary-foreground:  #FFFFFF;
+  --secondary:           #1E2A42;
+  --secondary-foreground:#8A99AD;
+  --muted:               #131929;
+  --muted-foreground:    #8A99AD;
+  --accent:              #9945FF;
+  --accent-foreground:   #FFFFFF;
+
+  --destructive:         #FF4A4A;
+  --destructive-foreground: #FFFFFF;
+
+  --border:              #24324F;
+  --input:               #161D30;
+  --input-background:    #1E2A42;
+  --switch-background:   #43536A;
+
+  --ring:                #9945FF;
+
+  --chart-1: #9945FF;
+  --chart-2: #14F195;
+  --chart-3: #FFB800;
+  --chart-4: #FF4A4A;
+  --chart-5: #3B82F6;
+
+  --sidebar:                  #0D1220;
+  --sidebar-foreground:       #FFFFFF;
+  --sidebar-primary:          #9945FF;
+  --sidebar-primary-foreground:#FFFFFF;
+  --sidebar-accent:           #1E2A42;
+  --sidebar-accent-foreground:#8A99AD;
+  --sidebar-border:           #24324F;
+  --sidebar-ring:             #9945FF;
+}
+
+/* ─── Tailwind theme mapping ─────────────────── */
+@theme inline {
+  --color-background:              var(--background);
+  --color-foreground:              var(--foreground);
+  --color-card:                    var(--card);
+  --color-card-foreground:         var(--card-foreground);
+  --color-popover:                 var(--popover);
+  --color-popover-foreground:      var(--popover-foreground);
+  --color-primary:                 var(--primary);
+  --color-primary-foreground:      var(--primary-foreground);
+  --color-secondary:               var(--secondary);
+  --color-secondary-foreground:    var(--secondary-foreground);
+  --color-muted:                   var(--muted);
+  --color-muted-foreground:        var(--muted-foreground);
+  --color-accent:                  var(--accent);
+  --color-accent-foreground:       var(--accent-foreground);
+  --color-destructive:             var(--destructive);
+  --color-destructive-foreground:  var(--destructive-foreground);
+  --color-border:                  var(--border);
+  --color-input:                   var(--input);
+  --color-input-background:        var(--input-background);
+  --color-switch-background:       var(--switch-background);
+  --color-ring:                    var(--ring);
+  --color-chart-1:                 var(--chart-1);
+  --color-chart-2:                 var(--chart-2);
+  --color-chart-3:                 var(--chart-3);
+  --color-chart-4:                 var(--chart-4);
+  --color-chart-5:                 var(--chart-5);
+  --radius-sm:   calc(var(--radius) - 4px);
+  --radius-md:   calc(var(--radius) - 2px);
+  --radius-lg:   var(--radius);
+  --radius-xl:   calc(var(--radius) + 4px);
+  --color-sidebar:                       var(--sidebar);
+  --color-sidebar-foreground:            var(--sidebar-foreground);
+  --color-sidebar-primary:               var(--sidebar-primary);
+  --color-sidebar-primary-foreground:    var(--sidebar-primary-foreground);
+  --color-sidebar-accent:                var(--sidebar-accent);
+  --color-sidebar-accent-foreground:     var(--sidebar-accent-foreground);
+  --color-sidebar-border:                var(--sidebar-border);
+  --color-sidebar-ring:                  var(--sidebar-ring);
+}
+
+/* ─── Base layer ─────────────────────────────── */
+@layer base {
+  *, *::before, *::after {
+    @apply border-border outline-ring/50;
+    box-sizing: border-box;
+  }
+
+  html {
+    font-size: var(--font-size);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    line-height: 1.5;
+  }
+
+  /* Scrollbars: hidden until hover */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: transparent transparent;
+  }
+  *:hover {
+    scrollbar-color: var(--border) transparent;
+  }
+  ::-webkit-scrollbar        { width: 3px; height: 3px; }
+  ::-webkit-scrollbar-track  { background: transparent; }
+  ::-webkit-scrollbar-thumb  { background: transparent; border-radius: 99px; }
+  *:hover::-webkit-scrollbar-thumb { background: var(--border); }
+
+  /* Typography resets */
+  h1 { font-size: 1.5rem;   font-weight: 600; line-height: 1.33; }
+  h2 { font-size: 1.125rem; font-weight: 500; line-height: 1.33; }
+  h3 { font-size: 1rem;     font-weight: 500; line-height: 1.5;  }
+  h4 { font-size: 0.875rem; font-weight: 500; line-height: 1.5;  }
+
+  button, input, textarea, select {
+    font-family: inherit;
+    font-size: 0.875rem;
+    font-weight: var(--font-weight-normal);
+    line-height: 1.5;
+  }
+}
