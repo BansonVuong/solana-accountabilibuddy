@@ -30,7 +30,9 @@ npm run relayer  # http://localhost:8787
   endpoints — `/scoreboard`, `/game`, `/verify`, `/settle-bet` — ready to drive
   the escrow/dev-bet flows on-chain.
 
-Set `VITE_RELAYER_URL` (see `.env.example`) to point at a non-default relayer.
+During local Vite development, the app defaults to `http://localhost:8787`.
+Production defaults to the web app's current HTTPS origin. Set
+`VITE_RELAYER_URL` (see `.env.example`) only to point at a non-default relayer.
 
 > The chat / escrow / leaderboard data is still design fixtures; the
 > infrastructure to back them with real on-chain state lives in

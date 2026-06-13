@@ -5,12 +5,13 @@
  * `accountability` program on devnet. These helpers let the dashboard show
  * *real* chain status and drive the on-chain flows that the relayer exposes.
  *
- * Base URL is configurable via VITE_RELAYER_URL.
+ * Base URL is configurable via VITE_RELAYER_URL. By default, local Vite
+ * development uses the local relayer and production uses the current origin.
  */
 
 export const RELAYER_URL =
   (import.meta.env.VITE_RELAYER_URL as string | undefined) ??
-  "https://66.42.115.38.nip.io";
+  (import.meta.env.DEV ? "http://localhost:8787" : window.location.origin);
 export const AUTH_TOKEN_STORAGE_KEY = "accountabilibuddy_auth_token";
 const REQUEST_TIMEOUT_MS = 10_000;
 
