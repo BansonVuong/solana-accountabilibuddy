@@ -2,9 +2,19 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
   Send, Paperclip, Hash, Users, AlertTriangle, Smile, Plus,
-  CheckCircle2, Clock, UserPlus, ChevronRight, Zap, Shield,
+  CheckCircle2, Clock, UserPlus, ChevronRight, Zap, Shield, AlertCircle,
 } from "lucide-react";
 import { Avatar, Pill, Mono } from "./ui";
+import { Button } from "./ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "./ui/dialog";
+import { Input } from "./ui/input";
 import { SendBetModal, type NewBet } from "./SendBetModal";
 import {
   addGroupMemberByUsername,
@@ -23,6 +33,12 @@ import {
 } from "../../lib/relayer";
 
 type Msg = ChatMessage;
+type ChatDialog =
+  | { type: "create-group" }
+  | { type: "add-member"; groupName: string }
+  | { type: "confirm-vote"; betId: string; votedFor: BetVoteChoice; candidateName: string; isChange: boolean }
+  | { type: "result"; title: string; description: string; tone: "success" | "error" };
+
 function toInitials(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean);
   if (parts.length === 0) return "NA";
@@ -292,6 +308,10 @@ export function ChatView({ currentUser }: { currentUser: AuthUser }) {
   const [refreshError, setRefreshError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [votingByBetId, setVotingByBetId] = useState<Record<string, boolean>>({});
+  const [chatDialog, setChatDialog] = useState<ChatDialog | null>(null);
+  const [dialogInput, setDialogInput] = useState("");
+  const [dialogBusy, setDialogBusy] = useState(false);
+  const [dialogError, setDialogError] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   const betsById = useMemo(
@@ -410,61 +430,89 @@ export function ChatView({ currentUser }: { currentUser: AuthUser }) {
     }
   }
 
-  async function handleCreateGroup(): Promise<void> {
-    const name = window.prompt("New group name");
-    if (!name || !name.trim()) return;
-    const { group } = await createGroup({
-      name: name.trim(),
-    });
-    setActiveGroup(group.id);
-    await refreshGroupsAndBets();
-    await refreshMessages(group.id);
+  function openInputDialog(dialog: Extract<ChatDialog, { type: "create-group" | "add-member" }>): void {
+    setDialogInput("");
+    setDialogError(null);
+    setChatDialog(dialog);
   }
 
-  async function handleAddUserToGroup(): Promise<void> {
-    if (!activeGroup || !activeGroupData) return;
-    const username = window.prompt(`Add which username to ${activeGroupData.name}?`);
-    if (!username || !username.trim()) return;
-    const result = await addGroupMemberByUsername(activeGroup, username.trim());
-    setGroups((prev) => prev.map((group) => (group.id === result.group.id ? result.group : group)));
-    window.alert(
-      result.alreadyMember
-        ? `@${result.addedUsername} is already in this group.`
-        : `Added @${result.addedUsername} to ${result.group.name}.`,
-    );
+  function showResult(title: string, description: string, tone: "success" | "error"): void {
+    setDialogError(null);
+    setChatDialog({ type: "result", title, description, tone });
+  }
+
+  async function submitInputDialog(): Promise<void> {
+    const value = dialogInput.trim();
+    if (!value || !chatDialog || (chatDialog.type !== "create-group" && chatDialog.type !== "add-member")) return;
+    setDialogBusy(true);
+    setDialogError(null);
+    try {
+      if (chatDialog.type === "create-group") {
+        const { group } = await createGroup({ name: value });
+        setActiveGroup(group.id);
+        await refreshGroupsAndBets();
+        await refreshMessages(group.id);
+        setChatDialog(null);
+        return;
+      }
+      if (!activeGroup) return;
+      const result = await addGroupMemberByUsername(activeGroup, value);
+      setGroups((prev) => prev.map((group) => (group.id === result.group.id ? result.group : group)));
+      showResult(
+        result.alreadyMember ? "Already a member" : "Member added",
+        result.alreadyMember
+          ? `@${result.addedUsername} is already in ${result.group.name}.`
+          : `@${result.addedUsername} can now access ${result.group.name}.`,
+        "success",
+      );
+    } catch (err) {
+      setDialogError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setDialogBusy(false);
+    }
   }
 
   function upsertBet(nextBet: Bet): void {
     setBets((prev) => prev.map((bet) => (bet.id === nextBet.id ? nextBet : bet)));
   }
 
-  async function handleVote(betId: string, votedFor: BetVoteChoice): Promise<void> {
+  function handleVote(betId: string, votedFor: BetVoteChoice): void {
     const current = betsById[betId];
     if (!current || isBetCompleted(current)) return;
 
     const candidateName = votedFor === "challenger" ? current.challenger : current.acceptor;
     const previousVote = getVotesByVoter(current)[currentUser.username];
-    const firstPrompt = previousVote && previousVote !== votedFor
-      ? `Change your vote to ${candidateName}?`
-      : `Vote for ${candidateName}?`;
-    if (!window.confirm(firstPrompt)) return;
-    if (!window.confirm(`Final confirmation: submit vote for ${candidateName}.`)) return;
+    setChatDialog({
+      type: "confirm-vote",
+      betId,
+      votedFor,
+      candidateName,
+      isChange: Boolean(previousVote && previousVote !== votedFor),
+    });
+  }
 
-    const optimistic = applyVoteToBet(current, currentUser.username, votedFor);
+  async function submitVote(dialog: Extract<ChatDialog, { type: "confirm-vote" }>): Promise<void> {
+    const current = betsById[dialog.betId];
+    if (!current || isBetCompleted(current)) return;
+    const optimistic = applyVoteToBet(current, currentUser.username, dialog.votedFor);
     upsertBet(optimistic);
-    setVotingByBetId((prev) => ({ ...prev, [betId]: true }));
+    setVotingByBetId((prev) => ({ ...prev, [dialog.betId]: true }));
+    setDialogBusy(true);
     try {
       const { bet } = await voteBet({
-        betId,
-        votedFor,
+        betId: dialog.betId,
+        votedFor: dialog.votedFor,
       });
       upsertBet(bet);
-    } catch {
+      setChatDialog(null);
+    } catch (err) {
       upsertBet(current);
+      showResult("Vote failed", err instanceof Error ? err.message : String(err), "error");
     } finally {
+      setDialogBusy(false);
       setVotingByBetId((prev) => {
         const next = { ...prev };
-        delete next[betId];
+        delete next[dialog.betId];
         return next;
       });
     }
@@ -491,7 +539,7 @@ export function ChatView({ currentUser }: { currentUser: AuthUser }) {
         await refreshGroupsAndBets();
       })
       .catch((err) => {
-        window.alert(`Failed to create bet card: ${err instanceof Error ? err.message : String(err)}`);
+        showResult("Bet creation failed", err instanceof Error ? err.message : String(err), "error");
       });
   }
 
@@ -553,7 +601,7 @@ export function ChatView({ currentUser }: { currentUser: AuthUser }) {
 
         <div className="p-2 border-t border-border">
           <button
-            onClick={() => { void handleCreateGroup(); }}
+            onClick={() => openInputDialog({ type: "create-group" })}
             className="w-full flex items-center justify-center gap-1.5 py-2 rounded-xl border border-dashed border-border text-muted-foreground hover:text-primary hover:border-primary/30 transition-colors"
             style={{ fontSize: "11px" }}
           >
@@ -595,7 +643,7 @@ export function ChatView({ currentUser }: { currentUser: AuthUser }) {
           </button>
           <div className="flex items-center gap-2">
             <button
-              onClick={() => { void handleAddUserToGroup(); }}
+              onClick={() => openInputDialog({ type: "add-member", groupName: activeGroupData.name })}
               disabled={!activeGroupData}
               className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               style={{ fontSize: "11px" }}
@@ -684,7 +732,7 @@ export function ChatView({ currentUser }: { currentUser: AuthUser }) {
                   msg={message}
                   bet={message.betId ? betsById[message.betId] : undefined}
                   voterName={currentUser.username}
-                  onVote={(betId, votedFor) => { void handleVote(betId, votedFor); }}
+                  onVote={handleVote}
                   isVoting={(betId) => Boolean(votingByBetId[betId])}
                 />
               </motion.div>
@@ -757,6 +805,102 @@ export function ChatView({ currentUser }: { currentUser: AuthUser }) {
         groupName={activeGroupData?.name ?? "No group selected"}
         groupMembers={modalGroupMembers}
       />
+      <Dialog
+        open={Boolean(chatDialog)}
+        onOpenChange={(open) => {
+          if (!open && !dialogBusy) {
+            setChatDialog(null);
+            setDialogError(null);
+          }
+        }}
+      >
+        <DialogContent className="overflow-hidden border-border bg-card p-0 shadow-2xl sm:max-w-md">
+          {chatDialog && (
+            <>
+              <div
+                className="h-1 w-full"
+                style={{
+                  background: chatDialog.type === "result" && chatDialog.tone === "error"
+                    ? "#ef4444"
+                    : "linear-gradient(90deg, #9945FF, #14F195)",
+                }}
+              />
+              <div className="p-6">
+                <DialogHeader className="pr-6">
+                  <div className="mb-1 flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                    {chatDialog.type === "add-member" ? <UserPlus size={18} /> :
+                      chatDialog.type === "confirm-vote" ? <Shield size={18} /> :
+                        chatDialog.type === "result" && chatDialog.tone === "error" ? <AlertCircle size={18} /> :
+                          chatDialog.type === "result" ? <CheckCircle2 size={18} /> : <Users size={18} />}
+                  </div>
+                  <DialogTitle className="text-foreground">
+                    {chatDialog.type === "create-group" ? "Create a group" :
+                      chatDialog.type === "add-member" ? "Add a member" :
+                        chatDialog.type === "confirm-vote" ? (chatDialog.isChange ? "Change your vote?" : "Confirm your vote") :
+                          chatDialog.title}
+                  </DialogTitle>
+                  <DialogDescription>
+                    {chatDialog.type === "create-group" ? "Start a private chat. Only members you add will be able to see it." :
+                      chatDialog.type === "add-member" ? `Invite a registered user to ${chatDialog.groupName}.` :
+                        chatDialog.type === "confirm-vote" ? `Submit your vote for ${chatDialog.candidateName}. This may resolve the bet once quorum is reached.` :
+                          chatDialog.description}
+                  </DialogDescription>
+                </DialogHeader>
+
+                {(chatDialog.type === "create-group" || chatDialog.type === "add-member") && (
+                  <form
+                    className="mt-5 space-y-3"
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      void submitInputDialog();
+                    }}
+                  >
+                    <Input
+                      autoFocus
+                      value={dialogInput}
+                      onChange={(event) => setDialogInput(event.target.value)}
+                      placeholder={chatDialog.type === "create-group" ? "e.g. Weekend Builders" : "Enter username"}
+                      className="h-11 rounded-xl bg-muted"
+                      disabled={dialogBusy}
+                    />
+                    {dialogError && (
+                      <div className="flex items-start gap-2 rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-2.5 text-destructive">
+                        <AlertCircle size={14} className="mt-0.5 shrink-0" />
+                        <span className="text-xs">{dialogError}</span>
+                      </div>
+                    )}
+                    <DialogFooter className="pt-2">
+                      <Button type="button" variant="outline" onClick={() => setChatDialog(null)} disabled={dialogBusy}>
+                        Cancel
+                      </Button>
+                      <Button type="submit" disabled={!dialogInput.trim() || dialogBusy}>
+                        {dialogBusy ? "Working..." : chatDialog.type === "create-group" ? "Create group" : "Add member"}
+                      </Button>
+                    </DialogFooter>
+                  </form>
+                )}
+
+                {chatDialog.type === "confirm-vote" && (
+                  <DialogFooter className="mt-6">
+                    <Button variant="outline" onClick={() => setChatDialog(null)} disabled={dialogBusy}>
+                      Cancel
+                    </Button>
+                    <Button onClick={() => { void submitVote(chatDialog); }} disabled={dialogBusy}>
+                      {dialogBusy ? "Submitting..." : `Vote for ${chatDialog.candidateName}`}
+                    </Button>
+                  </DialogFooter>
+                )}
+
+                {chatDialog.type === "result" && (
+                  <DialogFooter className="mt-6">
+                    <Button onClick={() => setChatDialog(null)}>Done</Button>
+                  </DialogFooter>
+                )}
+              </div>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
     </>
   );
 }
