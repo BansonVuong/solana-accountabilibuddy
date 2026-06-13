@@ -5,6 +5,7 @@ import {
   CheckCircle2, Clock, UserPlus,
 } from "lucide-react";
 import { Avatar, Pill, Mono } from "./ui";
+import { SendBetModal, type NewBet } from "./SendBetModal";
 import {
   addGroupMemberByUsername,
   createGroup,
@@ -19,6 +20,12 @@ import {
 } from "../../lib/relayer";
 
 type Msg = ChatMessage;
+function toInitials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "NA";
+  if (parts.length === 1) return parts[0]!.slice(0, 2).toUpperCase();
+  return `${parts[0]![0] ?? ""}${parts[1]![0] ?? ""}`.toUpperCase();
+}
 
 function StatusTag({ status }: { status: Bet["status"] }) {
   const map = {
@@ -86,6 +93,7 @@ function Message({ msg, bet }: { msg: Msg; bet?: Bet }) {
 export function ChatView({ currentUser }: { currentUser: AuthUser }) {
   const [activeGroup, setActiveGroup] = useState<string>("");
   const [input, setInput] = useState("");
+  const [betModalOpen, setBetModalOpen] = useState(false);
   const [groups, setGroups] = useState<Group[]>([]);
   const [bets, setBets] = useState<Bet[]>([]);
   const [messages, setMessages] = useState<Msg[]>([]);
@@ -99,6 +107,27 @@ export function ChatView({ currentUser }: { currentUser: AuthUser }) {
     [bets],
   );
   const activeGroupData = groups.find((group) => group.id === activeGroup) ?? null;
+  const modalGroupMembers = useMemo(() => {
+    const normalizedMembers = (activeGroupData?.memberUsernames ?? [])
+      .map((value) => value.trim())
+      .filter((value): value is string => Boolean(value));
+    const seen = new Set<string>();
+    const dedupedMembers: string[] = [];
+    for (const member of normalizedMembers) {
+      const key = member.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      dedupedMembers.push(member);
+    }
+    const currentUsername = currentUser.username.trim();
+    if (currentUsername && !seen.has(currentUsername.toLowerCase())) {
+      dedupedMembers.unshift(currentUsername);
+    }
+    if (dedupedMembers.length === 0) {
+      dedupedMembers.push(currentUser.username);
+    }
+    return dedupedMembers.map((name) => ({ name, initials: toInitials(name) }));
+  }, [activeGroupData?.memberUsernames, currentUser.username]);
 
   async function refreshGroupsAndBets(): Promise<void> {
     const [groupsRes, betsRes] = await Promise.all([getGroups(), getBets()]);
@@ -201,8 +230,30 @@ export function ChatView({ currentUser }: { currentUser: AuthUser }) {
     );
   }
 
+  function handleSendBet(bet: NewBet): void {
+    if (!activeGroup || !activeGroupData) return;
+    const messageText = bet.type === "DEV"
+      ? `🔥 New dev bet: ${bet.terms} · Stake: ${bet.stake} ${bet.currency}`
+      : `🎯 New personal bet vs ${bet.acceptor}: ${bet.terms} · Stake: ${bet.stake} ${bet.currency}`;
+    const groupId = activeGroup;
+    void postMessage({
+      groupId,
+      sender: currentUser.username,
+      initials: currentUser.initials,
+      text: messageText,
+    })
+      .then(async () => {
+        await refreshMessages(groupId);
+        await refreshGroupsAndBets();
+      })
+      .catch((err) => {
+        window.alert(`Failed to post bet: ${err instanceof Error ? err.message : String(err)}`);
+      });
+  }
+
   return (
-    <div className="flex h-full rounded-2xl border border-border overflow-hidden" style={{ background: "var(--card)" }}>
+    <>
+      <div className="flex h-full rounded-2xl border border-border overflow-hidden" style={{ background: "var(--card)" }}>
       <div className="w-60 flex flex-col shrink-0 border-r border-border" style={{ background: "var(--muted)" }}>
         <div className="px-4 py-3 border-b border-border">
           <Mono className="text-muted-foreground uppercase" style={{ fontSize: "9px", letterSpacing: "0.1em" } as React.CSSProperties}>
@@ -323,9 +374,12 @@ export function ChatView({ currentUser }: { currentUser: AuthUser }) {
 
         <div className="px-5 py-3.5 border-t border-border shrink-0">
           <div className="flex items-center gap-2">
-            <button
-              onClick={() => { void handleCreateGroup(); }}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-xl border font-semibold shrink-0 transition-all duration-150"
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.93 }}
+              onClick={() => setBetModalOpen(true)}
+              disabled={!activeGroupData}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl border font-semibold shrink-0 transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed"
               style={{
                 fontSize: "11px",
                 color: "#9945FF",
@@ -337,8 +391,8 @@ export function ChatView({ currentUser }: { currentUser: AuthUser }) {
               }}
             >
               <Plus size={11} />
-              New Group
-            </button>
+              New Bet
+            </motion.button>
 
             <div
               className="flex-1 flex items-center gap-3 px-4 py-2.5 rounded-xl border border-border transition-all duration-150"
@@ -374,6 +428,14 @@ export function ChatView({ currentUser }: { currentUser: AuthUser }) {
           </div>
         </div>
       </div>
-    </div>
+      </div>
+      <SendBetModal
+        open={betModalOpen}
+        onClose={() => setBetModalOpen(false)}
+        onSend={handleSendBet}
+        groupName={activeGroupData?.name ?? "No group selected"}
+        groupMembers={modalGroupMembers}
+      />
+    </>
   );
 }
