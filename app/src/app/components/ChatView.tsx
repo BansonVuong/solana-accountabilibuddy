@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from "motion/react";
 import {
   Send, Paperclip, Hash, Users, AlertTriangle, Smile, Plus,
   CheckCircle2, Clock, UserPlus, ChevronRight, Zap, Shield, AlertCircle,
+  Lock, ExternalLink,
 } from "lucide-react";
 import { Avatar, Pill, Mono } from "./ui";
 import { Button } from "./ui/button";
@@ -21,6 +22,7 @@ import {
   addGroupMemberByUsername,
   createGroup,
   createBet,
+  explorerTxUrl,
   getBets,
   getGroups,
   getMessages,
@@ -118,6 +120,31 @@ function BetTypeTag({ type }: { type: Bet["type"] }) {
       {type === "DEV" ? <Zap size={8} /> : <Shield size={8} />}
       BET TYPE: {type}
     </Pill>
+  );
+}
+
+function onChainLabel(state?: Bet["onChainState"]): string {
+  switch (state) {
+    case "open": return "ESCROW OPEN · awaiting match";
+    case "locked": return "LOCKED IN ESCROW · on-chain";
+    case "settled": return "PAID OUT ON-CHAIN";
+    case "cancelled": return "REFUNDED · window expired";
+    default: return "ON-CHAIN ESCROW";
+  }
+}
+
+function ExplorerLink({ sig, label }: { sig: string; label: string }) {
+  return (
+    <a
+      href={explorerTxUrl(sig)}
+      target="_blank"
+      rel="noreferrer"
+      className="inline-flex items-center gap-1 text-[#14F195] hover:underline"
+      style={{ fontSize: "10px", fontFamily: "'JetBrains Mono', monospace" }}
+    >
+      {label}
+      <ExternalLink size={9} />
+    </a>
   );
 }
 
@@ -270,6 +297,22 @@ function EmbeddedBetCard({
           </Mono>
         )}
       </div>
+
+      {bet.onChain && (
+        <div className="px-4 py-2.5 border-t border-border flex items-center justify-between gap-2 flex-wrap">
+          <div className="flex items-center gap-1.5">
+            <Lock size={10} style={{ color: "#9945FF" }} />
+            <Mono className="text-muted-foreground" style={{ fontSize: "10px" } as React.CSSProperties}>
+              {onChainLabel(bet.onChainState)}
+            </Mono>
+          </div>
+          <div className="flex items-center gap-2.5">
+            {bet.createSig && <ExplorerLink sig={bet.createSig} label="stake" />}
+            {bet.acceptSig && <ExplorerLink sig={bet.acceptSig} label="match" />}
+            {bet.settleSig && <ExplorerLink sig={bet.settleSig} label="payout" />}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

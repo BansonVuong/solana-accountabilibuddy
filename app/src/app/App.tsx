@@ -77,7 +77,7 @@ function StatusBar() {
         </Mono>
       </div>
       <Mono className="text-muted-foreground" style={{ fontSize: "9px" } as React.CSSProperties}>
-        AccountabiliBuddy v0.9.0-beta · Vultr AI Engine
+        COMMIT {__GIT_COMMIT__}
       </Mono>
     </div>
   );
