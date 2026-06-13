@@ -3,6 +3,7 @@
 // Env vars:
 //   ORACLE_KEYPAIR    path to keypair JSON  (default ~/.config/solana/id.json)
 //   SOLANA_RPC_URL    RPC endpoint           (default devnet)
+//   HOST              HTTP bind address      (default 127.0.0.1)
 //   PORT              HTTP port              (default 8787)
 //   POLL_INTERVAL_MS  crank interval ms      (default 60_000)
 //   PROFILE_NAME      profile display name   (default "Me")
@@ -28,13 +29,14 @@ import { fetchGameResult, fetchScoreboard, type Sport } from "./scraper";
 import {
   isDbConfigured, groups, messages, bets, players, profiles, users, type GroupDoc, type MessageDoc, type ProfileDoc, type UserDoc, type BetDoc,
 } from "./db";
-import idl from "../target/idl/accountability.json";
-import type { Accountability } from "../target/types/accountability";
+import idl from "./generated/accountability.json";
+import type { Accountability } from "./generated/accountability";
 
 // ── config ───────────────────────────────────────────────────────────────────
 
 const RPC_URL         = process.env.SOLANA_RPC_URL ?? web3.clusterApiUrl("devnet");
 const ORACLE_KP_PATH  = process.env.ORACLE_KEYPAIR ?? "~/.config/solana/id.json";
+const HOST            = process.env.HOST ?? "127.0.0.1";
 const PORT            = Number(process.env.PORT ?? 8787);
 const POLL_INTERVAL   = Number(process.env.POLL_INTERVAL_MS ?? 60_000);
 const PROFILE_NAME    = process.env.PROFILE_NAME ?? "Me";
@@ -794,8 +796,8 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-server.listen(PORT, () => {
-  console.log(`relayer listening on http://localhost:${PORT}`);
+server.listen(PORT, HOST, () => {
+  console.log(`relayer listening on http://${HOST}:${PORT}`);
   console.log(`oracle: ${oracle.publicKey.toBase58()}`);
   console.log(`program: ${program.programId.toBase58()}`);
 });

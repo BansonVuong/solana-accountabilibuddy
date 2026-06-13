@@ -1,0 +1,8 @@
+[Unit]
+Description=Pull and deploy AccountabiliBuddy relayer updates
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/accountabilibuddy/deploy/relayer/update.sh

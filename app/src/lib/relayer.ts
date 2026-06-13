@@ -5,13 +5,12 @@
  * `accountability` program on devnet. These helpers let the dashboard show
  * *real* chain status and drive the on-chain flows that the relayer exposes.
  *
- * Base URL is configurable via VITE_RELAYER_URL (defaults to localhost:8787,
- * the relayer's default PORT).
+ * Base URL is configurable via VITE_RELAYER_URL.
  */
 
 export const RELAYER_URL =
   (import.meta.env.VITE_RELAYER_URL as string | undefined) ??
-  "http://localhost:8787";
+  "https://66.42.115.38";
 export const AUTH_TOKEN_STORAGE_KEY = "accountabilibuddy_auth_token";
 
 export interface RelayerHealth {

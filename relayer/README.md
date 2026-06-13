@@ -9,6 +9,11 @@ export SOLANA_RPC_URL=https://api.devnet.solana.com
 yarn relayer
 ```
 
+The shared deployment is available at `https://66.42.115.38`. It runs behind
+Caddy, and `deploy/relayer/accountabilibuddy-update.timer` checks the GitHub
+`main` branch every minute. See `deploy/relayer/README.md` for provisioning and
+operations.
+
 Resolve a commitment successfully:
 
 ```bash

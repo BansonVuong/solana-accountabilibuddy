@@ -3,6 +3,7 @@
   "scripts": {
     "relayer": "TS_NODE_TRANSPILE_ONLY=1 ts-node relayer/index.ts",
     "relayer:build": "tsc --noEmit",
+    "relayer:deploy-check": "npm run relayer:build",
     "bet": "TS_NODE_TRANSPILE_ONLY=1 ts-node relayer/sports-bet.ts",
     "app": "npm --prefix app run dev",
     "lint:fix": "prettier */*.js \"*/**/*{.js,.ts}\" -w",
