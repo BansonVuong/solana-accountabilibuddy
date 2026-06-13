@@ -12,6 +12,7 @@ export const RELAYER_URL =
   (import.meta.env.VITE_RELAYER_URL as string | undefined) ??
   "https://66.42.115.38.nip.io";
 export const AUTH_TOKEN_STORAGE_KEY = "accountabilibuddy_auth_token";
+const REQUEST_TIMEOUT_MS = 10_000;
 
 export interface RelayerHealth {
   ok: boolean;
@@ -52,15 +53,27 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
   if (token && !headers.has("authorization")) {
     headers.set("authorization", `Bearer ${token}`);
   }
-  const res = await fetch(`${RELAYER_URL}${path}`, {
-    headers,
-    ...init,
-  });
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error((body as { error?: string }).error ?? `relayer ${res.status}`);
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    const res = await fetch(`${RELAYER_URL}${path}`, {
+      ...init,
+      headers,
+      signal: controller.signal,
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error((body as { error?: string }).error ?? `relayer ${res.status}`);
+    }
+    return res.json() as Promise<T>;
+  } catch (err) {
+    if (err instanceof DOMException && err.name === "AbortError") {
+      throw new Error("relayer request timed out");
+    }
+    throw err;
+  } finally {
+    window.clearTimeout(timeout);
   }
-  return res.json() as Promise<T>;
 }
 
 function readStoredAuthToken(): string | null {

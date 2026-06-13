@@ -792,6 +792,11 @@ const server = http.createServer(async (req, res) => {
     return json(res, 404, { error: "not found" });
   } catch (err) {
     console.error(err);
+    if (err instanceof Error && err.name.startsWith("Mongo")) {
+      return json(res, 503, {
+        error: "database unavailable; check MongoDB Atlas network access",
+      });
+    }
     return json(res, 500, { error: err instanceof Error ? err.message : String(err) });
   }
 });

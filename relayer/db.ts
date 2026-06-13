@@ -11,11 +11,13 @@
 //   MONGODB_URI   connection string, e.g.
 //                 mongodb+srv://USER:PASS@cluster0.xxxx.mongodb.net/?retryWrites=true&w=majority
 //   MONGODB_DB    database name (default: "accountabilibuddy")
+//   MONGODB_TIMEOUT_MS connection/server selection timeout (default: 5 seconds)
 
 import { MongoClient, type Collection, type Db } from "mongodb";
 
 const MONGODB_URI = process.env.MONGODB_URI;
 const MONGODB_DB = process.env.MONGODB_DB ?? "accountabilibuddy";
+const MONGODB_TIMEOUT_MS = Number(process.env.MONGODB_TIMEOUT_MS ?? 5_000);
 
 // ── document shapes ───────────────────────────────────────────────────────────
 
@@ -121,7 +123,10 @@ export async function getDb(): Promise<Db | null> {
 
   if (!clientPromise) {
     clientPromise = (async () => {
-      const client = new MongoClient(MONGODB_URI);
+      const client = new MongoClient(MONGODB_URI, {
+        connectTimeoutMS: MONGODB_TIMEOUT_MS,
+        serverSelectionTimeoutMS: MONGODB_TIMEOUT_MS,
+      });
       await client.connect();
       const db = client.db(MONGODB_DB);
       console.log(`mongodb connected: ${MONGODB_DB}`);
