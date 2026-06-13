@@ -409,33 +409,32 @@ const server = http.createServer(async (req, res) => {
 
     // GET /groups  — group-chat list
     if (req.method === "GET" && req.url === "/groups") {
+      const authUser = await getAuthenticatedUser(req);
+      if (!authUser) return json(res, 401, { error: "unauthorized" });
       const col = await groups();
       if (!col) return dbUnconfigured(res);
-      const docs = await col.find({}, { projection: { _id: 0 } }).toArray();
+      const docs = await col
+        .find({ memberUsernames: authUser.username }, { projection: { _id: 0 } })
+        .toArray();
       return json(res, 200, { groups: docs });
     }
 
-    // POST /groups  { name, initials?, members?, creatorUsername? }  — create a group-chat record
+    // POST /groups  { name, initials? }  — create a group-chat record
     if (req.method === "POST" && req.url === "/groups") {
+      const authUser = await getAuthenticatedUser(req);
+      if (!authUser) return json(res, 401, { error: "unauthorized" });
       const col = await groups();
       if (!col) return dbUnconfigured(res);
       const body = await readJson(req);
       if (typeof body.name !== "string" || body.name.trim().length < 2)
         return json(res, 400, { error: "name is required (min 2 chars)" });
       const now = Date.now();
-      const creatorUsername = normalizeUsername(body.creatorUsername);
-      const memberUsernames = creatorUsername ? [creatorUsername] : [];
-      const resolvedMembers = Math.max(
-        1,
-        Math.floor(toFiniteNumber(body.members, 1)),
-        memberUsernames.length,
-      );
       const doc: GroupDoc = {
         id: `g-${now}`,
         name: body.name.trim(),
         initials: toInitials(typeof body.initials === "string" ? body.initials : body.name),
-        members: resolvedMembers,
-        memberUsernames: memberUsernames.length ? memberUsernames : undefined,
+        members: 1,
+        memberUsernames: [authUser.username],
         pendingBet: false,
         lastMsg: "Group created",
         time: new Date(now).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
@@ -447,6 +446,8 @@ const server = http.createServer(async (req, res) => {
     // POST /groups/:id/members  { username } — add a known user to a group by username
     const groupMembersPathId = req.url ? decodeGroupMembersPathId(req.url) : null;
     if (req.method === "POST" && groupMembersPathId) {
+      const authUser = await getAuthenticatedUser(req);
+      if (!authUser) return json(res, 401, { error: "unauthorized" });
       const groupsCol = await groups();
       const usersCol = await users();
       if (!groupsCol || !usersCol) return dbUnconfigured(res);
@@ -457,20 +458,23 @@ const server = http.createServer(async (req, res) => {
         return json(res, 400, { error: "valid username is required" });
       }
 
-      const user = await usersCol.findOne(
-        { usernameLower: username.toLowerCase() },
-        { projection: { _id: 0 } },
-      );
-      if (!user) {
-        return json(res, 404, { error: "username not found" });
-      }
-
       const group = await groupsCol.findOne(
         { id: groupMembersPathId },
         { projection: { _id: 0 } },
       );
       if (!group) {
         return json(res, 404, { error: "group not found" });
+      }
+      if (!isGroupMember(group, authUser.username)) {
+        return json(res, 403, { error: "group membership required" });
+      }
+
+      const user = await usersCol.findOne(
+        { usernameLower: username.toLowerCase() },
+        { projection: { _id: 0 } },
+      );
+      if (!user) {
+        return json(res, 404, { error: "username not found" });
       }
 
       const currentMemberUsernames = Array.isArray(group.memberUsernames)
@@ -517,48 +521,63 @@ const server = http.createServer(async (req, res) => {
 
     // GET /messages?group=1  — messages for a group (chronological)
     if (req.method === "GET" && req.url?.startsWith("/messages")) {
-      const col = await messages();
-      if (!col) return dbUnconfigured(res);
+      const authUser = await getAuthenticatedUser(req);
+      if (!authUser) return json(res, 401, { error: "unauthorized" });
+      const messagesCol = await messages();
+      const groupsCol = await groups();
+      if (!messagesCol || !groupsCol) return dbUnconfigured(res);
       const groupId = new URL(req.url, "http://x").searchParams.get("group") ?? "1";
-      const docs = await col
+      const group = await groupsCol.findOne({ id: groupId }, { projection: { _id: 0 } });
+      if (!group) return json(res, 404, { error: "group not found" });
+      if (!isGroupMember(group, authUser.username)) {
+        return json(res, 403, { error: "group membership required" });
+      }
+      const docs = await messagesCol
         .find({ groupId }, { projection: { _id: 0 } })
         .sort({ createdAt: 1 })
         .toArray();
       return json(res, 200, { messages: docs });
     }
 
-    // POST /messages  { groupId, sender, initials, text }  — append a chat message
+    // POST /messages  { groupId, text }  — append a chat message
     if (req.method === "POST" && req.url === "/messages") {
-      const col = await messages();
-      if (!col) return dbUnconfigured(res);
+      const authUser = await getAuthenticatedUser(req);
+      if (!authUser) return json(res, 401, { error: "unauthorized" });
+      const messagesCol = await messages();
+      const groupsCol = await groups();
+      if (!messagesCol || !groupsCol) return dbUnconfigured(res);
       const body = await readJson(req);
-      if (typeof body.groupId !== "string" || typeof body.sender !== "string")
-        return json(res, 400, { error: "groupId and sender are required" });
+      if (typeof body.groupId !== "string")
+        return json(res, 400, { error: "groupId is required" });
+      const group = await groupsCol.findOne({ id: body.groupId }, { projection: { _id: 0 } });
+      if (!group) return json(res, 404, { error: "group not found" });
+      if (!isGroupMember(group, authUser.username)) {
+        return json(res, 403, { error: "group membership required" });
+      }
       const doc: MessageDoc = {
         id:        `m-${Date.now()}`,
         groupId:   body.groupId,
-        sender:    body.sender,
-        initials:  toInitials(typeof body.initials === "string" ? body.initials : body.sender),
+        sender:    authUser.username,
+        initials:  toInitials(authUser.username),
         text:      typeof body.text === "string" ? body.text : undefined,
         system:    false,
         ts:        new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
         createdAt: Date.now(),
       };
-      await col.insertOne(doc);
-      const groupsCol = await groups();
-      if (groupsCol) {
-        await groupsCol.updateOne(
-          { id: body.groupId },
-          { $set: { lastMsg: doc.text ?? "New message", time: doc.ts } },
-        );
-      }
+      await messagesCol.insertOne(doc);
+      await groupsCol.updateOne(
+        { id: body.groupId },
+        { $set: { lastMsg: doc.text ?? "New message", time: doc.ts } },
+      );
       const { ...out } = doc;
       return json(res, 201, { message: out });
     }
 
-    // POST /bets  { groupId, type, challenger, acceptor, terms, stake, currency, witnesses?, minBettors? }
+    // POST /bets  { groupId, type, acceptor, terms, stake, currency, witnesses?, minBettors? }
     // Creates a persistent bet plus a linked system message for embedded bet-card rendering.
     if (req.method === "POST" && req.url === "/bets") {
+      const authUser = await getAuthenticatedUser(req);
+      if (!authUser) return json(res, 401, { error: "unauthorized" });
       const betsCol = await bets();
       const groupsCol = await groups();
       const messagesCol = await messages();
@@ -567,7 +586,7 @@ const server = http.createServer(async (req, res) => {
       const body = await readJson(req);
       const groupId = typeof body.groupId === "string" ? body.groupId.trim() : "";
       const type = body.type === "PERSONAL" || body.type === "DEV" ? body.type : null;
-      const challenger = typeof body.challenger === "string" ? body.challenger.trim() : "";
+      const challenger = authUser.username;
       const acceptorInput = typeof body.acceptor === "string" ? body.acceptor.trim() : "";
       const terms = typeof body.terms === "string" ? body.terms.trim() : "";
       const stakeInput = typeof body.stake === "string" ? body.stake.trim() : `${body.stake ?? ""}`.trim();
@@ -575,7 +594,6 @@ const server = http.createServer(async (req, res) => {
 
       if (!groupId) return json(res, 400, { error: "groupId is required" });
       if (!type) return json(res, 400, { error: "type must be PERSONAL or DEV" });
-      if (!challenger) return json(res, 400, { error: "challenger is required" });
       const acceptor = type === "DEV" ? (acceptorInput || "anyone") : acceptorInput;
       if (!acceptor) return json(res, 400, { error: "acceptor is required" });
       if (terms.length < 8) return json(res, 400, { error: "terms must be at least 8 characters" });
@@ -587,6 +605,9 @@ const server = http.createServer(async (req, res) => {
 
       const group = await groupsCol.findOne({ id: groupId }, { projection: { _id: 0 } });
       if (!group) return json(res, 404, { error: "group not found" });
+      if (!isGroupMember(group, authUser.username)) {
+        return json(res, 403, { error: "group membership required" });
+      }
 
       const now = Date.now();
       const ts = new Date(now).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -596,6 +617,7 @@ const server = http.createServer(async (req, res) => {
 
       const betDoc: BetDoc = {
         id: `bet-${now}-${crypto.randomBytes(3).toString("hex")}`,
+        groupId,
         type,
         challenger,
         acceptor,
@@ -635,31 +657,62 @@ const server = http.createServer(async (req, res) => {
       return json(res, 201, { bet: normalizeBetDoc(betDoc), message: systemMessage });
     }
 
-    // GET /bets  — all bets
+    // GET /bets  — bets linked to the current user's groups
     if (req.method === "GET" && req.url === "/bets") {
-      const col = await bets();
-      if (!col) return dbUnconfigured(res);
-      const docs = await col.find({}, { projection: { _id: 0 } }).toArray();
+      const authUser = await getAuthenticatedUser(req);
+      if (!authUser) return json(res, 401, { error: "unauthorized" });
+      const betsCol = await bets();
+      const groupsCol = await groups();
+      const messagesCol = await messages();
+      if (!betsCol || !groupsCol || !messagesCol) return dbUnconfigured(res);
+      const memberGroups = await groupsCol
+        .find({ memberUsernames: authUser.username }, { projection: { id: 1 } })
+        .toArray();
+      const groupIds = memberGroups.map((group) => group.id);
+      const legacyBetIds = groupIds.length
+        ? await messagesCol.distinct("betId", { groupId: { $in: groupIds }, betId: { $type: "string" } })
+        : [];
+      const docs = groupIds.length
+        ? await betsCol.find({
+            $or: [
+              { groupId: { $in: groupIds } },
+              { id: { $in: legacyBetIds } },
+            ],
+          }, { projection: { _id: 0 } }).toArray()
+        : [];
       return json(res, 200, { bets: docs.map(normalizeBetDoc) });
     }
 
-    // POST /bets/vote  { betId, voter, votedFor }  — cast/update witness vote
+    // POST /bets/vote  { betId, votedFor }  — cast/update witness vote
     if (req.method === "POST" && req.url === "/bets/vote") {
+      const authUser = await getAuthenticatedUser(req);
+      if (!authUser) return json(res, 401, { error: "unauthorized" });
       const col = await bets();
-      if (!col) return dbUnconfigured(res);
+      const groupsCol = await groups();
+      const messagesCol = await messages();
+      if (!col || !groupsCol || !messagesCol) return dbUnconfigured(res);
       const body = await readJson(req);
       const betId = typeof body.betId === "string" ? body.betId.trim() : "";
-      const voter = typeof body.voter === "string" ? body.voter.trim() : "";
+      const voter = authUser.username;
       const votedFor = body.votedFor;
 
       if (!betId) return json(res, 400, { error: "betId is required" });
-      if (!voter) return json(res, 400, { error: "voter is required" });
       if (votedFor !== "challenger" && votedFor !== "acceptor") {
         return json(res, 400, { error: "votedFor must be challenger or acceptor" });
       }
 
       const existing = await col.findOne({ id: betId }, { projection: { _id: 0 } });
       if (!existing) return json(res, 404, { error: "bet not found" });
+      const linkedMessage = existing.groupId
+        ? null
+        : await messagesCol.findOne({ betId }, { projection: { groupId: 1 } });
+      const groupId = existing.groupId ?? linkedMessage?.groupId;
+      const group = groupId
+        ? await groupsCol.findOne({ id: groupId }, { projection: { _id: 0 } })
+        : null;
+      if (!group || !isGroupMember(group, authUser.username)) {
+        return json(res, 403, { error: "group membership required" });
+      }
       const current = normalizeBetDoc(existing);
       if (isBetCompletedStatus(current.status)) {
         return json(res, 409, { error: "bet is already completed", bet: current });
@@ -964,6 +1017,12 @@ async function getAuthenticatedUser(req: http.IncomingMessage): Promise<UserDoc 
   if (!col) return null;
   const user = await col.findOne({ id: payload.uid });
   return user;
+}
+
+function isGroupMember(group: GroupDoc, username: string): boolean {
+  return Array.isArray(group.memberUsernames) && group.memberUsernames.some(
+    (member) => member.toLowerCase() === username.toLowerCase(),
+  );
 }
 
 function readJson(req: http.IncomingMessage): Promise<Record<string, unknown>> {

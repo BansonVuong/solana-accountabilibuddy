@@ -47,6 +47,8 @@ export interface MessageDoc {
 
 export interface BetDoc {
   id: string;
+  /** Group that owns this bet. Older records may only be linked through a message. */
+  groupId?: string;
   type: "PERSONAL" | "DEV";
   challenger: string;
   acceptor: string;
@@ -173,7 +175,9 @@ async function ensureIndexes(db: Db): Promise<void> {
   // Helpful indexes (idempotent).
   await db.collection("messages").createIndex({ groupId: 1, createdAt: 1 });
   await db.collection("groups").createIndex({ id: 1 }, { unique: true });
+  await db.collection("groups").createIndex({ memberUsernames: 1 });
   await db.collection("bets").createIndex({ id: 1 }, { unique: true });
+  await db.collection("bets").createIndex({ groupId: 1 });
   await db.collection("players").createIndex({ github: 1 }, { unique: true });
   await db.collection("users").createIndex({ emailLower: 1 }, { unique: true });
   await db.collection("users").createIndex({ usernameLower: 1 }, { unique: true });

@@ -400,8 +400,6 @@ export function ChatView({ currentUser }: { currentUser: AuthUser }) {
     try {
       await postMessage({
         groupId: activeGroup,
-        sender: currentUser.username,
-        initials: currentUser.initials,
         text,
       });
       setInput("");
@@ -417,8 +415,6 @@ export function ChatView({ currentUser }: { currentUser: AuthUser }) {
     if (!name || !name.trim()) return;
     const { group } = await createGroup({
       name: name.trim(),
-      members: 1,
-      creatorUsername: currentUser.username,
     });
     setActiveGroup(group.id);
     await refreshGroupsAndBets();
@@ -460,7 +456,6 @@ export function ChatView({ currentUser }: { currentUser: AuthUser }) {
     try {
       const { bet } = await voteBet({
         betId,
-        voter: currentUser.username,
         votedFor,
       });
       upsertBet(bet);
@@ -484,7 +479,6 @@ export function ChatView({ currentUser }: { currentUser: AuthUser }) {
     void createBet({
       groupId,
       type: bet.type,
-      challenger: currentUser.username,
       acceptor: normalizedAcceptor,
       terms: bet.terms.trim(),
       stake: bet.stake.trim(),

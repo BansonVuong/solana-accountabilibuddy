@@ -249,6 +249,7 @@ export type BetVoteChoice = "challenger" | "acceptor";
 
 export interface Bet {
   id: string;
+  groupId?: string;
   type: "PERSONAL" | "DEV";
   challenger: string;
   acceptor: string;
@@ -288,8 +289,6 @@ export function getGroups(): Promise<{ groups: Group[] }> {
 export function createGroup(input: {
   name: string;
   initials?: string;
-  members?: number;
-  creatorUsername?: string;
 }): Promise<{ group: Group }> {
   return req("/groups", {
     method: "POST",
@@ -316,8 +315,6 @@ export function getMessages(groupId: string): Promise<{ messages: ChatMessage[] 
 /** Append a chat message. */
 export function postMessage(input: {
   groupId: string;
-  sender: string;
-  initials?: string;
   text: string;
 }): Promise<{ message: ChatMessage }> {
   return req("/messages", { method: "POST", body: JSON.stringify(input) });
@@ -326,7 +323,6 @@ export function postMessage(input: {
 export function createBet(input: {
   groupId: string;
   type: "PERSONAL" | "DEV";
-  challenger: string;
   acceptor: string;
   terms: string;
   stake: string;
@@ -345,7 +341,6 @@ export function getBets(): Promise<{ bets: Bet[] }> {
 /** Cast or update one witness vote for a bet. */
 export function voteBet(input: {
   betId: string;
-  voter: string;
   votedFor: BetVoteChoice;
 }): Promise<{ bet: Bet }> {
   return req("/bets/vote", { method: "POST", body: JSON.stringify(input) });
