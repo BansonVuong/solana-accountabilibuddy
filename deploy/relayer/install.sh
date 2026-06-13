@@ -68,7 +68,7 @@ systemctl daemon-reload
 systemctl enable accountabilibuddy-relayer.service accountabilibuddy-update.timer caddy.service
 systemctl restart caddy.service
 systemctl start accountabilibuddy-update.timer
-git rev-parse HEAD >/var/lib/accountabilibuddy/deployed-sha
+runuser -u accountabilibuddy -- git rev-parse HEAD >/var/lib/accountabilibuddy/deployed-sha
 
 if [[ -f "$env_dir/oracle.json" ]]; then
   chown root:accountabilibuddy "$env_dir/oracle.json"
