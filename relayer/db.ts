@@ -14,7 +14,7 @@
 //   MONGODB_DB    database name (default: "accountabilibuddy")
 
 import { MongoClient, type Collection, type Db } from "mongodb";
-import { SEED_GROUPS, SEED_MESSAGES, SEED_BETS, SEED_PLAYERS } from "./seed-data";
+import { SEED_GROUPS, SEED_MESSAGES, SEED_BETS, SEED_PLAYERS, SEED_PROFILES } from "./seed-data";
 
 const MONGODB_URI = process.env.MONGODB_URI;
 const MONGODB_DB = process.env.MONGODB_DB ?? "accountabilibuddy";
@@ -60,6 +60,21 @@ export interface BetDoc {
   commitmentId?: string;
 }
 
+export interface ProfileDoc {
+  id: string;
+  name: string;
+  initials: string;
+  github: string;
+  bio?: string;
+  pals: number;
+  sol: number;
+  wins: number;
+  disputes: number;
+  streak: number;
+  streakDir: "up" | "down" | "neutral";
+  createdAt: number;
+  updatedAt: number;
+}
 export interface PlayerDoc {
   rank: number;
   name: string;
@@ -124,6 +139,10 @@ export async function players(): Promise<Collection<PlayerDoc> | null> {
   const db = await getDb();
   return db ? db.collection<PlayerDoc>("players") : null;
 }
+export async function profiles(): Promise<Collection<ProfileDoc> | null> {
+  const db = await getDb();
+  return db ? db.collection<ProfileDoc>("profiles") : null;
+}
 
 // ── seeding ─────────────────────────────────────────────────────────────────
 
@@ -134,6 +153,7 @@ async function seedIfEmpty(db: Db): Promise<void> {
     ["messages", SEED_MESSAGES],
     ["bets", SEED_BETS],
     ["players", SEED_PLAYERS],
+    ["profiles", SEED_PROFILES],
   ];
 
   for (const [name, docs] of seeds) {
@@ -150,4 +170,6 @@ async function seedIfEmpty(db: Db): Promise<void> {
   await db.collection("groups").createIndex({ id: 1 }, { unique: true });
   await db.collection("bets").createIndex({ id: 1 }, { unique: true });
   await db.collection("players").createIndex({ github: 1 }, { unique: true });
+  await db.collection("profiles").createIndex({ id: 1 }, { unique: true });
+  await db.collection("profiles").createIndex({ github: 1 }, { unique: true });
 }

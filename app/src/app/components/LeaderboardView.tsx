@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { Github, TrendingUp, TrendingDown, Minus, Trophy, Flame, Star, Activity } from "lucide-react";
 import { Avatar, Pill, Card, Mono } from "./ui";
-import { getLeaderboard } from "../../lib/relayer";
+import { getLeaderboard, getProfiles } from "../../lib/relayer";
 
 /* ── Types & data ──────────────────────────────────────── */
 type Tab = "points" | "sol";
@@ -95,11 +95,35 @@ export function LeaderboardView() {
 
   useEffect(() => {
     let alive = true;
-    getLeaderboard()
-      .then(({ players }) => {
-        if (alive && players.length) { setPlayers(players as Player[]); setLive(true); }
+    getProfiles()
+      .then(({ profiles }) => {
+        if (!alive || !profiles.length) return;
+        const mapped = profiles
+          .sort((a, b) => b.pals - a.pals)
+          .map((p, i) => ({
+            rank: i + 1,
+            name: p.name,
+            initials: p.initials,
+            github: p.github,
+            pals: p.pals,
+            palsDelta: 0,
+            sol: p.sol,
+            solDelta: 0,
+            wins: p.wins,
+            disputes: p.disputes,
+            streak: p.streak,
+            streakDir: p.streakDir,
+          } satisfies Player));
+        setPlayers(mapped);
+        setLive(true);
       })
-      .catch(() => { /* relayer offline or DB unconfigured — keep fixtures */ });
+      .catch(() => {
+        getLeaderboard()
+          .then(({ players }) => {
+            if (alive && players.length) { setPlayers(players as Player[]); setLive(true); }
+          })
+          .catch(() => { /* relayer offline or DB unconfigured — keep fixtures */ });
+      });
     return () => { alive = false; };
   }, []);
 

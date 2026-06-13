@@ -6,7 +6,7 @@ import {
 } from "lucide-react";
 import { Avatar, Pill, Card, Mono, Divider } from "./ui";
 import {
-  getGroups, getBets, getMessages, postMessage,
+  getGroups, getBets, getMessages, postMessage, createGroup,
   type Group as ApiGroup, type Bet as ApiBet, type ChatMessage,
 } from "../../lib/relayer";
 
@@ -72,6 +72,13 @@ const MESSAGES: Msg[] = [
   { id:"m7", sender:"Kevin",  initials:"KV", text:"Dev bets hit different fr. AI doesn't lie 🤖",                                system:false, ts:"2:18 PM" },
   { id:"m8", sender:"Matt",   initials:"MT", text:"Fine. Fine. I accept. But if I lose I'm deleting the app 😤",                 system:false, ts:"2:19 PM" },
 ];
+
+const INITIAL_MESSAGES_BY_GROUP: Record<string, Msg[]> = {
+  "1": MESSAGES,
+  "2": [],
+  "3": [],
+  "4": [],
+};
 
 /* ── Embedded Bet Card ─────────────────────────────────── */
 function BetTypeTag({ type }: { type: BetType }) {
@@ -223,8 +230,9 @@ export function ChatView() {
   // Live from the relayer (Mongo-backed) when available; design fixtures otherwise.
   const [groups, setGroups] = useState<(typeof GROUPS[number] | ApiGroup)[]>(GROUPS);
   const [bets, setBets] = useState<Bet[]>(BETS);
-  const [messages, setMessages] = useState<Msg[]>(MESSAGES);
+  const [messagesByGroup, setMessagesByGroup] = useState<Record<string, Msg[]>>(INITIAL_MESSAGES_BY_GROUP);
   const [live, setLive] = useState(false);
+  const messages = messagesByGroup[activeGroup] ?? [];
 
   /* Build the embedded-bet lookup so system messages can resolve their bet. */
   const betsById = Object.fromEntries(bets.map(b => [b.id, b])) as Record<string, Bet>;
@@ -256,7 +264,10 @@ export function ChatView() {
     if (!live) return;
     let alive = true;
     getMessages(activeGroup)
-      .then(({ messages }) => { if (alive) setMessages(messages.map(toMsg)); })
+      .then(({ messages: groupMessages }) => {
+        if (!alive) return;
+        setMessagesByGroup(prev => ({ ...prev, [activeGroup]: groupMessages.map(toMsg) }));
+      })
       .catch(() => { /* keep whatever is shown */ });
     return () => { alive = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -269,19 +280,66 @@ export function ChatView() {
   async function send() {
     const text = input.trim();
     if (!text) return;
+    const groupId = activeGroup;
+    const ts = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
     setInput("");
     const optimistic: Msg = {
       id: `local-${Date.now()}`, sender: "Me", initials: "ME",
       text, system: false,
-      ts: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+      ts,
     };
-    setMessages(prev => [...prev, optimistic]);
+    setMessagesByGroup(prev => ({
+      ...prev,
+      [groupId]: [...(prev[groupId] ?? []), optimistic],
+    }));
+    setGroups(prev =>
+      prev.map(g => (g.id === groupId ? { ...g, lastMsg: text, time: ts } : g)),
+    );
     if (!live) return; // demo mode — keep it local only
     try {
-      const { message } = await postMessage({ groupId: activeGroup, sender: "Me", initials: "ME", text });
-      setMessages(prev => prev.map(m => (m.id === optimistic.id ? toMsg(message) : m)));
+      const { message } = await postMessage({ groupId, sender: "Me", initials: "ME", text });
+      setMessagesByGroup(prev => ({
+        ...prev,
+        [groupId]: (prev[groupId] ?? []).map(m => (m.id === optimistic.id ? toMsg(message) : m)),
+      }));
+      setGroups(prev =>
+        prev.map(g => (
+          g.id === groupId
+            ? { ...g, lastMsg: message.text ?? "New message", time: message.ts }
+            : g
+        )),
+      );
     } catch {
       /* leave the optimistic message in place */
+    }
+  }
+
+  async function handleCreateGroup() {
+    const name = window.prompt("Group name");
+    if (!name || !name.trim()) return;
+    const trimmed = name.trim();
+    if (!live) {
+      const localGroup = {
+        id: `local-${Date.now()}`,
+        name: trimmed,
+        initials: trimmed.slice(0, 2).toUpperCase(),
+        members: 1,
+        pendingBet: false,
+        lastMsg: "Group created",
+        time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+      };
+      setGroups((prev) => [localGroup, ...prev]);
+      setActiveGroup(localGroup.id);
+      setMessagesByGroup((prev) => ({ ...prev, [localGroup.id]: [] }));
+      return;
+    }
+    try {
+      const { group } = await createGroup({ name: trimmed });
+      setGroups((prev) => [group, ...prev]);
+      setActiveGroup(group.id);
+      setMessagesByGroup((prev) => ({ ...prev, [group.id]: [] }));
+    } catch {
+      /* leave the current list unchanged on error */
     }
   }
 
@@ -340,6 +398,7 @@ export function ChatView() {
 
         <div className="p-2 border-t border-border">
           <button
+            onClick={() => void handleCreateGroup()}
             className="w-full flex items-center justify-center gap-1.5 py-2 rounded-xl border border-dashed border-border
               text-muted-foreground hover:text-primary hover:border-primary/30 transition-colors"
             style={{ fontSize: "11px" }}

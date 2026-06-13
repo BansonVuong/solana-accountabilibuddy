@@ -18,7 +18,7 @@ import { AnchorProvider, Program, Wallet, web3 } from "@anchor-lang/core";
 
 import { fetchGameResult, fetchScoreboard, type Sport } from "./scraper";
 import {
-  isDbConfigured, groups, messages, bets, players, type MessageDoc,
+  isDbConfigured, groups, messages, bets, players, profiles, type GroupDoc, type MessageDoc, type ProfileDoc,
 } from "./db";
 import idl from "../target/idl/accountability.json";
 import type { Accountability } from "../target/types/accountability";
@@ -271,6 +271,27 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, { groups: docs });
     }
 
+    // POST /groups  { name, initials?, members? }  — create a group-chat record
+    if (req.method === "POST" && req.url === "/groups") {
+      const col = await groups();
+      if (!col) return dbUnconfigured(res);
+      const body = await readJson(req);
+      if (typeof body.name !== "string" || body.name.trim().length < 2)
+        return json(res, 400, { error: "name is required (min 2 chars)" });
+      const now = Date.now();
+      const doc: GroupDoc = {
+        id: `g-${now}`,
+        name: body.name.trim(),
+        initials: toInitials(typeof body.initials === "string" ? body.initials : body.name),
+        members: Number.isFinite(body.members) ? Number(body.members) : 1,
+        pendingBet: false,
+        lastMsg: "Group created",
+        time: new Date(now).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+      };
+      await col.insertOne(doc);
+      return json(res, 201, { group: doc });
+    }
+
     // GET /messages?group=1  — messages for a group (chronological)
     if (req.method === "GET" && req.url?.startsWith("/messages")) {
       const col = await messages();
@@ -294,13 +315,20 @@ const server = http.createServer(async (req, res) => {
         id:        `m-${Date.now()}`,
         groupId:   body.groupId,
         sender:    body.sender,
-        initials:  String(body.initials ?? body.sender).slice(0, 2).toUpperCase(),
+        initials:  toInitials(typeof body.initials === "string" ? body.initials : body.sender),
         text:      typeof body.text === "string" ? body.text : undefined,
         system:    false,
         ts:        new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
         createdAt: Date.now(),
       };
       await col.insertOne(doc);
+      const groupsCol = await groups();
+      if (groupsCol) {
+        await groupsCol.updateOne(
+          { id: body.groupId },
+          { $set: { lastMsg: doc.text ?? "New message", time: doc.ts } },
+        );
+      }
       const { ...out } = doc;
       return json(res, 201, { message: out });
     }
@@ -322,6 +350,82 @@ const server = http.createServer(async (req, res) => {
         .sort({ pals: -1 })
         .toArray();
       return json(res, 200, { players: docs });
+    }
+
+    // GET /profiles  — all profile records
+    if (req.method === "GET" && req.url === "/profiles") {
+      const col = await profiles();
+      if (!col) return dbUnconfigured(res);
+      const docs = await col
+        .find({}, { projection: { _id: 0 } })
+        .sort({ pals: -1, updatedAt: -1 })
+        .toArray();
+      return json(res, 200, { profiles: docs });
+    }
+
+    // GET /profiles/:id  — one profile by id
+    if (req.method === "GET" && req.url?.startsWith("/profiles/")) {
+      const col = await profiles();
+      if (!col) return dbUnconfigured(res);
+      const id = decodeProfilePathId(req.url);
+      if (!id) return json(res, 400, { error: "profile id is required" });
+      const doc = await col.findOne({ id }, { projection: { _id: 0 } });
+      if (!doc) return json(res, 404, { error: "profile not found" });
+      return json(res, 200, { profile: doc });
+    }
+
+    // POST /profiles  { name, initials?, github?, bio?, ...stats }
+    if (req.method === "POST" && req.url === "/profiles") {
+      const col = await profiles();
+      if (!col) return dbUnconfigured(res);
+      const body = await readJson(req);
+      if (typeof body.name !== "string" || body.name.trim().length < 2)
+        return json(res, 400, { error: "name is required (min 2 chars)" });
+      const now = Date.now();
+      const doc: ProfileDoc = {
+        id: `u-${now}`,
+        name: body.name.trim(),
+        initials: toInitials(typeof body.initials === "string" ? body.initials : body.name),
+        github: typeof body.github === "string" && body.github.trim() ? body.github.trim() : `user-${now}`,
+        bio: typeof body.bio === "string" ? body.bio.trim() : undefined,
+        pals: toFiniteNumber(body.pals, 0),
+        sol: toFiniteNumber(body.sol, 0),
+        wins: toFiniteNumber(body.wins, 0),
+        disputes: toFiniteNumber(body.disputes, 0),
+        streak: toFiniteNumber(body.streak, 0),
+        streakDir: body.streakDir === "up" || body.streakDir === "down" ? body.streakDir : "neutral",
+        createdAt: now,
+        updatedAt: now,
+      };
+      await col.insertOne(doc);
+      return json(res, 201, { profile: doc });
+    }
+
+    // PATCH /profiles/:id  — partial profile updates
+    if (req.method === "PATCH" && req.url?.startsWith("/profiles/")) {
+      const col = await profiles();
+      if (!col) return dbUnconfigured(res);
+      const id = decodeProfilePathId(req.url);
+      if (!id) return json(res, 400, { error: "profile id is required" });
+      const body = await readJson(req);
+      const update: Partial<ProfileDoc> = {};
+      if (typeof body.name === "string" && body.name.trim()) update.name = body.name.trim();
+      if (typeof body.initials === "string" && body.initials.trim()) update.initials = toInitials(body.initials);
+      if (typeof body.github === "string" && body.github.trim()) update.github = body.github.trim();
+      if (typeof body.bio === "string") update.bio = body.bio.trim();
+      if (Number.isFinite(body.pals)) update.pals = Number(body.pals);
+      if (Number.isFinite(body.sol)) update.sol = Number(body.sol);
+      if (Number.isFinite(body.wins)) update.wins = Number(body.wins);
+      if (Number.isFinite(body.disputes)) update.disputes = Number(body.disputes);
+      if (Number.isFinite(body.streak)) update.streak = Number(body.streak);
+      if (body.streakDir === "up" || body.streakDir === "down" || body.streakDir === "neutral") update.streakDir = body.streakDir;
+      if (Object.keys(update).length === 0)
+        return json(res, 400, { error: "no valid fields provided for update" });
+      update.updatedAt = Date.now();
+      await col.updateOne({ id }, { $set: update });
+      const doc = await col.findOne({ id }, { projection: { _id: 0 } });
+      if (!doc) return json(res, 404, { error: "profile not found" });
+      return json(res, 200, { profile: doc });
     }
 
     return json(res, 404, { error: "not found" });
@@ -373,7 +477,7 @@ function readJson(req: http.IncomingMessage): Promise<Record<string, unknown>> {
 function corsHeaders(): Record<string, string> {
   return {
     "access-control-allow-origin":  "*",
-    "access-control-allow-methods": "GET, POST, OPTIONS",
+    "access-control-allow-methods": "GET, POST, PATCH, OPTIONS",
     "access-control-allow-headers": "content-type",
   };
 }
@@ -389,4 +493,27 @@ function dbUnconfigured(res: http.ServerResponse): void {
 
 function explorerUrl(sig: string): string {
   return `https://explorer.solana.com/tx/${sig}?cluster=devnet`;
+}
+
+function decodeProfilePathId(url: string): string {
+  return decodeURIComponent(url.slice("/profiles/".length).split("?")[0] ?? "");
+}
+
+function toInitials(input: unknown): string {
+  if (typeof input !== "string") return "NA";
+  const trimmed = input.trim();
+  if (!trimmed) return "NA";
+  const fromWords = trimmed
+    .split(/\s+/)
+    .map((part) => part[0])
+    .filter(Boolean)
+    .slice(0, 2)
+    .join("")
+    .toUpperCase();
+  if (fromWords.length >= 2) return fromWords;
+  return trimmed.slice(0, 2).toUpperCase();
+}
+
+function toFiniteNumber(value: unknown, fallback: number): number {
+  return Number.isFinite(value) ? Number(value) : fallback;
 }

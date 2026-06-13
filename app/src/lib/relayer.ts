@@ -140,6 +140,22 @@ export interface Group {
   time: string;
 }
 
+export interface Profile {
+  id: string;
+  name: string;
+  initials: string;
+  github: string;
+  bio?: string;
+  pals: number;
+  sol: number;
+  wins: number;
+  disputes: number;
+  streak: number;
+  streakDir: "up" | "down" | "neutral";
+  createdAt: number;
+  updatedAt: number;
+}
+
 export interface ChatMessage {
   id: string;
   groupId: string;
@@ -186,6 +202,15 @@ export function getGroups(): Promise<{ groups: Group[] }> {
   return req("/groups");
 }
 
+/** Create a new group chat. */
+export function createGroup(input: {
+  name: string;
+  initials?: string;
+  members?: number;
+}): Promise<{ group: Group }> {
+  return req("/groups", { method: "POST", body: JSON.stringify(input) });
+}
+
 /** Messages for a group, chronological. */
 export function getMessages(groupId: string): Promise<{ messages: ChatMessage[] }> {
   return req(`/messages?group=${encodeURIComponent(groupId)}`);
@@ -209,4 +234,41 @@ export function getBets(): Promise<{ bets: Bet[] }> {
 /** Players ranked by $PALS. */
 export function getLeaderboard(): Promise<{ players: Player[] }> {
   return req("/leaderboard");
+}
+
+/** All user profiles (Mongo-backed). */
+export function getProfiles(): Promise<{ profiles: Profile[] }> {
+  return req("/profiles");
+}
+
+/** Fetch one profile by id. */
+export function getProfile(id: string): Promise<{ profile: Profile }> {
+  return req(`/profiles/${encodeURIComponent(id)}`);
+}
+
+/** Create a profile document. */
+export function createProfile(input: {
+  name: string;
+  initials?: string;
+  github?: string;
+  bio?: string;
+  pals?: number;
+  sol?: number;
+  wins?: number;
+  disputes?: number;
+  streak?: number;
+  streakDir?: "up" | "down" | "neutral";
+}): Promise<{ profile: Profile }> {
+  return req("/profiles", { method: "POST", body: JSON.stringify(input) });
+}
+
+/** Patch an existing profile document by id. */
+export function updateProfile(
+  id: string,
+  input: Partial<Omit<Profile, "id" | "createdAt" | "updatedAt">>,
+): Promise<{ profile: Profile }> {
+  return req(`/profiles/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  });
 }
