@@ -62,6 +62,20 @@ export function getHealth(): Promise<RelayerHealth> {
   return req<RelayerHealth>("/health");
 }
 
+export interface ProfileSummary {
+  name: string;
+  initials: string;
+  github: string;
+  wallet: string;
+  usdcMint: string;
+  usdcBalance: number;
+}
+
+/** Profile details plus current USDC balance for the configured profile wallet. */
+export function getProfileSummary(): Promise<ProfileSummary> {
+  return req<ProfileSummary>("/profile");
+}
+
 /**
  * Today's games + ESPN game IDs for a given sport. For soccer, pass an optional
  * `league` (e.g. "worldcup", "ucl", "epl") to narrow the board to one competition.
