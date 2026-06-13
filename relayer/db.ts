@@ -4,9 +4,8 @@
 //
 // PLUG-AND-PLAY: the relayer runs fine with NO database configured. The moment
 // you set MONGODB_URI in the environment (e.g. an Atlas connection string with
-// your credentials), the relayer connects on first request, seeds the
-// collections with the dashboard's starter data if they're empty, and starts
-// serving real data from the /groups, /messages, /bets and /leaderboard routes.
+// your credentials), the relayer connects on first request and serves live
+// data from MongoDB.
 //
 // Env vars:
 //   MONGODB_URI   connection string, e.g.
@@ -14,7 +13,6 @@
 //   MONGODB_DB    database name (default: "accountabilibuddy")
 
 import { MongoClient, type Collection, type Db } from "mongodb";
-import { SEED_GROUPS, SEED_MESSAGES, SEED_BETS, SEED_PLAYERS, SEED_PROFILES } from "./seed-data";
 
 const MONGODB_URI = process.env.MONGODB_URI;
 const MONGODB_DB = process.env.MONGODB_DB ?? "accountabilibuddy";
@@ -26,6 +24,7 @@ export interface GroupDoc {
   name: string;
   initials: string;
   members: number;
+  memberUsernames?: string[];
   pendingBet: boolean;
   lastMsg: string;
   time: string;
@@ -90,6 +89,16 @@ export interface PlayerDoc {
   streakDir: "up" | "down" | "neutral";
 }
 
+export interface UserDoc {
+  id: string;
+  email: string;
+  emailLower: string;
+  username: string;
+  usernameLower: string;
+  passwordHash: string;
+  createdAt: number;
+}
+
 // ── lazy singleton connection ──────────────────────────────────────────────────
 
 let clientPromise: Promise<Db> | null = null;
@@ -101,7 +110,7 @@ export function isDbConfigured(): boolean {
 
 /**
  * Returns the connected Db, or null when MONGODB_URI is unset (so callers can
- * degrade gracefully). Connects + seeds on first call.
+ * degrade gracefully). Connects + initializes indexes on first call.
  */
 export async function getDb(): Promise<Db | null> {
   if (!MONGODB_URI) return null;
@@ -112,7 +121,7 @@ export async function getDb(): Promise<Db | null> {
       await client.connect();
       const db = client.db(MONGODB_DB);
       console.log(`mongodb connected: ${MONGODB_DB}`);
-      await seedIfEmpty(db);
+      await ensureIndexes(db);
       return db;
     })().catch((err) => {
       clientPromise = null; // allow retry on next request
@@ -139,37 +148,26 @@ export async function players(): Promise<Collection<PlayerDoc> | null> {
   const db = await getDb();
   return db ? db.collection<PlayerDoc>("players") : null;
 }
+export async function users(): Promise<Collection<UserDoc> | null> {
+  const db = await getDb();
+  return db ? db.collection<UserDoc>("users") : null;
+}
 export async function profiles(): Promise<Collection<ProfileDoc> | null> {
   const db = await getDb();
   return db ? db.collection<ProfileDoc>("profiles") : null;
 }
 
-// ── seeding ─────────────────────────────────────────────────────────────────
+// ── indexes ─────────────────────────────────────────────────────────────────
 
-/** Populate any empty collection with the dashboard's starter fixtures. */
-async function seedIfEmpty(db: Db): Promise<void> {
-  const seeds: [string, unknown[]][] = [
-    ["groups", SEED_GROUPS],
-    ["messages", SEED_MESSAGES],
-    ["bets", SEED_BETS],
-    ["players", SEED_PLAYERS],
-    ["profiles", SEED_PROFILES],
-  ];
-
-  for (const [name, docs] of seeds) {
-    const col = db.collection(name);
-    const count = await col.estimatedDocumentCount();
-    if (count === 0 && docs.length > 0) {
-      await col.insertMany(docs as Record<string, unknown>[]);
-      console.log(`seeded ${docs.length} ${name}`);
-    }
-  }
-
+/** Ensure all collection indexes exist (idempotent). */
+async function ensureIndexes(db: Db): Promise<void> {
   // Helpful indexes (idempotent).
   await db.collection("messages").createIndex({ groupId: 1, createdAt: 1 });
   await db.collection("groups").createIndex({ id: 1 }, { unique: true });
   await db.collection("bets").createIndex({ id: 1 }, { unique: true });
   await db.collection("players").createIndex({ github: 1 }, { unique: true });
+  await db.collection("users").createIndex({ emailLower: 1 }, { unique: true });
+  await db.collection("users").createIndex({ usernameLower: 1 }, { unique: true });
   await db.collection("profiles").createIndex({ id: 1 }, { unique: true });
   await db.collection("profiles").createIndex({ github: 1 }, { unique: true });
 }

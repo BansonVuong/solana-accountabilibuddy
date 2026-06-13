@@ -12,6 +12,7 @@
 export const RELAYER_URL =
   (import.meta.env.VITE_RELAYER_URL as string | undefined) ??
   "http://localhost:8787";
+export const AUTH_TOKEN_STORAGE_KEY = "accountabilibuddy_auth_token";
 
 export interface RelayerHealth {
   ok: boolean;
@@ -46,8 +47,14 @@ export interface ScoreboardGame {
 export type Sport = "soccer" | "nba" | "nfl";
 
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
+  const headers = new Headers(init?.headers ?? {});
+  if (!headers.has("content-type")) headers.set("content-type", "application/json");
+  const token = readStoredAuthToken();
+  if (token && !headers.has("authorization")) {
+    headers.set("authorization", `Bearer ${token}`);
+  }
   const res = await fetch(`${RELAYER_URL}${path}`, {
-    headers: { "content-type": "application/json" },
+    headers,
     ...init,
   });
   if (!res.ok) {
@@ -57,9 +64,52 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+function readStoredAuthToken(): string | null {
+  if (typeof window === "undefined") return null;
+  return window.localStorage.getItem(AUTH_TOKEN_STORAGE_KEY);
+}
+
 /** Liveness + identity of the relayer/oracle and the cluster it's pointed at. */
 export function getHealth(): Promise<RelayerHealth> {
   return req<RelayerHealth>("/health");
+}
+
+export interface AuthUser {
+  id: string;
+  email: string;
+  username: string;
+  initials: string;
+  createdAt: number;
+}
+
+export interface AuthResult {
+  token: string;
+  user: AuthUser;
+}
+
+export function signupWithEmail(input: {
+  email: string;
+  username: string;
+  password: string;
+}): Promise<AuthResult> {
+  return req<AuthResult>("/auth/signup", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export function loginWithEmail(input: {
+  email: string;
+  password: string;
+}): Promise<AuthResult> {
+  return req<AuthResult>("/auth/login", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export function getCurrentAuthUser(): Promise<{ user: AuthUser }> {
+  return req<{ user: AuthUser }>("/auth/me");
 }
 
 export interface ProfileSummary {
@@ -149,6 +199,7 @@ export interface Group {
   name: string;
   initials: string;
   members: number;
+  memberUsernames?: string[];
   pendingBet: boolean;
   lastMsg: string;
   time: string;
@@ -216,13 +267,28 @@ export function getGroups(): Promise<{ groups: Group[] }> {
   return req("/groups");
 }
 
-/** Create a new group chat. */
+/** Create a new chat group. */
 export function createGroup(input: {
   name: string;
   initials?: string;
   members?: number;
+  creatorUsername?: string;
 }): Promise<{ group: Group }> {
-  return req("/groups", { method: "POST", body: JSON.stringify(input) });
+  return req("/groups", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+/** Add a user (by username) to a group chat. */
+export function addGroupMemberByUsername(
+  groupId: string,
+  username: string,
+): Promise<{ group: Group; addedUsername: string; alreadyMember?: boolean }> {
+  return req(`/groups/${encodeURIComponent(groupId)}/members`, {
+    method: "POST",
+    body: JSON.stringify({ username }),
+  });
 }
 
 /** Messages for a group, chronological. */
