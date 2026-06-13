@@ -232,6 +232,8 @@ export interface ChatMessage {
   ts: string;
 }
 
+export type BetVoteChoice = "challenger" | "acceptor";
+
 export interface Bet {
   id: string;
   type: "PERSONAL" | "DEV";
@@ -240,10 +242,12 @@ export interface Bet {
   terms: string;
   stake: string;
   currency: string;
-  status: "PENDING" | "ACTIVE" | "RESOLVED";
+  status: "PENDING" | "ACTIVE" | "RESOLVED" | "COMPLETED";
   witnesses: number;
   minBettors: number;
   groupSize: number;
+  votesByVoter?: Record<string, BetVoteChoice>;
+  resolvedWinner?: BetVoteChoice;
   commitmentId?: string;
 }
 
@@ -309,6 +313,15 @@ export function postMessage(input: {
 /** All bets. */
 export function getBets(): Promise<{ bets: Bet[] }> {
   return req("/bets");
+}
+
+/** Cast or update one witness vote for a bet. */
+export function voteBet(input: {
+  betId: string;
+  voter: string;
+  votedFor: BetVoteChoice;
+}): Promise<{ bet: Bet }> {
+  return req("/bets/vote", { method: "POST", body: JSON.stringify(input) });
 }
 
 /** Players ranked by $PALS. */

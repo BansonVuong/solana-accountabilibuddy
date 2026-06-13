@@ -20,6 +20,7 @@ export const SEED_BETS: BetDoc[] = [
     terms: "Kevin wagers Matt that Matt cannot run a 5k tomorrow morning",
     stake: "500", currency: "POINTS",
     status: "PENDING", witnesses: 1, minBettors: 2, groupSize: 8,
+    votesByVoter: {},
   },
   {
     id: "bet-002", type: "DEV",
@@ -27,6 +28,7 @@ export const SEED_BETS: BetDoc[] = [
     terms: "Sarah bets Jordan cannot ship a full-stack feature before midnight",
     stake: "0.25", currency: "SOL",
     status: "ACTIVE", witnesses: 2, minBettors: 2, groupSize: 8,
+    votesByVoter: { Kevin: "challenger" },
   },
 ];
 

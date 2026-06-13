@@ -26,7 +26,7 @@ import { AnchorProvider, Program, Wallet, web3 } from "@anchor-lang/core";
 
 import { fetchGameResult, fetchScoreboard, type Sport } from "./scraper";
 import {
-  isDbConfigured, groups, messages, bets, players, profiles, users, type GroupDoc, type MessageDoc, type ProfileDoc, type UserDoc,
+  isDbConfigured, groups, messages, bets, players, profiles, users, type GroupDoc, type MessageDoc, type ProfileDoc, type UserDoc, type BetDoc,
 } from "./db";
 import idl from "../target/idl/accountability.json";
 import type { Accountability } from "../target/types/accountability";
@@ -120,6 +120,48 @@ async function crankTimeouts(): Promise<void> {
 // ── sports bet helpers ────────────────────────────────────────────────────────
 
 const SPORT_NAMES: Sport[] = ["soccer", "nba", "nfl"];
+type BetVoteChoice = "challenger" | "acceptor";
+
+function normalizeBetStatus(status: BetDoc["status"]): BetDoc["status"] {
+  return status === "RESOLVED" ? "COMPLETED" : status;
+}
+
+function normalizeVotesByVoter(input: BetDoc["votesByVoter"]): Record<string, BetVoteChoice> {
+  if (!input || typeof input !== "object") return {};
+  const out: Record<string, BetVoteChoice> = {};
+  for (const [voter, choice] of Object.entries(input)) {
+    if ((choice === "challenger" || choice === "acceptor") && voter.trim()) {
+      out[voter] = choice;
+    }
+  }
+  return out;
+}
+
+function normalizeBetDoc(doc: BetDoc): BetDoc {
+  return {
+    ...doc,
+    status: normalizeBetStatus(doc.status),
+    votesByVoter: normalizeVotesByVoter(doc.votesByVoter),
+  };
+}
+
+function isBetCompletedStatus(status: BetDoc["status"]): boolean {
+  return normalizeBetStatus(status) === "COMPLETED";
+}
+
+function countBetVotes(votesByVoter: Record<string, BetVoteChoice>): {
+  challenger: number;
+  acceptor: number;
+  total: number;
+} {
+  let challenger = 0;
+  let acceptor = 0;
+  for (const choice of Object.values(votesByVoter)) {
+    if (choice === "challenger") challenger += 1;
+    if (choice === "acceptor") acceptor += 1;
+  }
+  return { challenger, acceptor, total: challenger + acceptor };
+}
 
 // Decode a [u8; 32] zero-padded game id back into a string.
 function decodeGameId(raw: ArrayLike<number>): string {
@@ -517,7 +559,66 @@ const server = http.createServer(async (req, res) => {
       const col = await bets();
       if (!col) return dbUnconfigured(res);
       const docs = await col.find({}, { projection: { _id: 0 } }).toArray();
-      return json(res, 200, { bets: docs });
+      return json(res, 200, { bets: docs.map(normalizeBetDoc) });
+    }
+
+    // POST /bets/vote  { betId, voter, votedFor }  — cast/update witness vote
+    if (req.method === "POST" && req.url === "/bets/vote") {
+      const col = await bets();
+      if (!col) return dbUnconfigured(res);
+      const body = await readJson(req);
+      const betId = typeof body.betId === "string" ? body.betId.trim() : "";
+      const voter = typeof body.voter === "string" ? body.voter.trim() : "";
+      const votedFor = body.votedFor;
+
+      if (!betId) return json(res, 400, { error: "betId is required" });
+      if (!voter) return json(res, 400, { error: "voter is required" });
+      if (votedFor !== "challenger" && votedFor !== "acceptor") {
+        return json(res, 400, { error: "votedFor must be challenger or acceptor" });
+      }
+
+      const existing = await col.findOne({ id: betId }, { projection: { _id: 0 } });
+      if (!existing) return json(res, 404, { error: "bet not found" });
+      const current = normalizeBetDoc(existing);
+      if (isBetCompletedStatus(current.status)) {
+        return json(res, 409, { error: "bet is already completed", bet: current });
+      }
+
+      const nextVotesByVoter: Record<string, BetVoteChoice> = {
+        ...current.votesByVoter,
+        [voter]: votedFor,
+      };
+      const votes = countBetVotes(nextVotesByVoter);
+      const witnessThreshold = Math.max(1, Number(current.witnesses) || 1);
+      const winner: BetVoteChoice | undefined =
+        votes.challenger >= witnessThreshold
+          ? "challenger"
+          : votes.acceptor >= witnessThreshold
+            ? "acceptor"
+            : undefined;
+      const nextStatus: BetDoc["status"] = winner
+        ? "COMPLETED"
+        : current.status === "PENDING" && votes.total > 0
+          ? "ACTIVE"
+          : current.status;
+
+      await col.updateOne(
+        { id: betId },
+        {
+          $set: {
+            votesByVoter: nextVotesByVoter,
+            status: nextStatus,
+            ...(winner ? { resolvedWinner: winner } : {}),
+          },
+        },
+      );
+      if (!winner && current.resolvedWinner) {
+        await col.updateOne({ id: betId }, { $unset: { resolvedWinner: "" } });
+      }
+
+      const updated = await col.findOne({ id: betId }, { projection: { _id: 0 } });
+      if (!updated) return json(res, 404, { error: "bet not found after update" });
+      return json(res, 200, { bet: normalizeBetDoc(updated) });
     }
 
     // GET /leaderboard  — players ranked by $PALS

@@ -51,10 +51,14 @@ export interface BetDoc {
   terms: string;
   stake: string;
   currency: string;
-  status: "PENDING" | "ACTIVE" | "RESOLVED";
+  status: "PENDING" | "ACTIVE" | "RESOLVED" | "COMPLETED";
   witnesses: number;
   minBettors: number;
   groupSize: number;
+  /** Witness votes keyed by voter name/handle. */
+  votesByVoter?: Record<string, "challenger" | "acceptor">;
+  /** Winning side once witness quorum is met. */
+  resolvedWinner?: "challenger" | "acceptor";
   /** On-chain commitment / sports-bet PDA once staked (optional). */
   commitmentId?: string;
 }
