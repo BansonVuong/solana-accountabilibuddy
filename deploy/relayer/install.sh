@@ -75,5 +75,6 @@ if [[ -f "$env_dir/oracle.json" ]]; then
   chmod 640 "$env_dir/oracle.json"
   systemctl restart accountabilibuddy-relayer.service
 else
+  systemctl stop accountabilibuddy-relayer.service
   echo "Relayer installed but not started: provision $env_dir/oracle.json first." >&2
 fi
