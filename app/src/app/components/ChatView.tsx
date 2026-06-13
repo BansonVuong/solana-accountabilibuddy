@@ -1,167 +1,42 @@
-import { useState, useRef, useEffect } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
-  Send, Paperclip, Hash, Zap, Shield, Clock,
-  CheckCircle2, Users, AlertTriangle, ChevronRight, Smile, Plus, X, UserPlus,
+  Send, Paperclip, Hash, Users, AlertTriangle, Smile, Plus,
+  CheckCircle2, Clock, UserPlus,
 } from "lucide-react";
 import { Avatar, Pill, Mono } from "./ui";
 import { SendBetModal, type NewBet } from "./SendBetModal";
 import {
-  getGroups, getBets, getMessages, postMessage, createGroup,
-  type Group as ApiGroup, type Bet as ApiBet, type ChatMessage,
+  addGroupMemberByUsername,
+  createGroup,
+  getBets,
+  getGroups,
+  getMessages,
+  postMessage,
+  type AuthUser,
+  type Bet,
+  type ChatMessage,
+  type Group,
 } from "../../lib/relayer";
 
-/* ── Data ──────────────────────────────────────────────── */
-const GROUPS = [
-  { id: "1", name: "The Dev Pack", initials: "DP", members: 8, pendingBet: true, lastMsg: "Kevin just dropped a bet 🔥", time: "2:18 PM" },
-  { id: "2", name: "Grind Season", initials: "GS", members: 5, pendingBet: false, lastMsg: "Who's running tomorrow AM?", time: "1:04 PM" },
-  { id: "3", name: "Ship It Gang", initials: "SI", members: 12, pendingBet: true, lastMsg: "New DevBet awaiting votes", time: "11:42 AM" },
-  { id: "4", name: "Alpha Cadre", initials: "AC", members: 3, pendingBet: false, lastMsg: "Nice streak, Matt! 🏆", time: "Yesterday" },
-];
-
-const GROUP_MEMBERS = [
-  { name: "Kevin", initials: "KV" },
-  { name: "Jordan", initials: "JD" },
-  { name: "Sarah", initials: "SR" },
-];
-
-const GROUP_MEMBERS_BY_GROUP: Record<string, { name: string; initials: string }[]> = {
-  "1": GROUP_MEMBERS,
-  "2": [
-    { name: "Leah", initials: "LH" },
-    { name: "Andre", initials: "AN" },
-    { name: "Nia", initials: "NA" },
-  ],
-  "3": [
-    { name: "Priya", initials: "PR" },
-    { name: "Noah", initials: "NH" },
-    { name: "Avery", initials: "AV" },
-    { name: "Eli", initials: "EL" },
-  ],
-  "4": [
-    { name: "Maya", initials: "MY" },
-    { name: "Rico", initials: "RC" },
-  ],
-};
-
-type BetStatus = "PENDING" | "ACTIVE" | "RESOLVED";
-type BetType = "PERSONAL" | "DEV";
-
-interface Bet {
-  id: string;
-  type: BetType;
-  challenger: string;
-  acceptor: string;
-  terms: string;
-  stake: string;
-  currency: string;
-  status: BetStatus;
-  witnesses: number;
-  minBettors: number;
-  groupSize: number;
-}
-
-const BETS: Bet[] = [
-  {
-    id: "bet-001",
-    type: "PERSONAL",
-    challenger: "Kevin",
-    acceptor: "Matt",
-    terms: "Kevin wagers Matt that Matt cannot run a 5k tomorrow morning",
-    stake: "500",
-    currency: "POINTS",
-    status: "PENDING",
-    witnesses: 1,
-    minBettors: 2,
-    groupSize: 8,
-  },
-  {
-    id: "bet-002",
-    type: "DEV",
-    challenger: "Sarah",
-    acceptor: "Jordan",
-    terms: "Sarah bets Jordan cannot ship a full-stack feature before midnight",
-    stake: "0.25",
-    currency: "SOL",
-    status: "ACTIVE",
-    witnesses: 2,
-    minBettors: 2,
-    groupSize: 8,
-  },
-];
-
-interface Msg {
-  id: string;
-  sender: string;
-  initials: string;
-  text?: string;
-  bet?: Bet;
-  system: boolean;
-  ts: string;
-}
-
-const INITIAL_MESSAGES: Msg[] = [
-  { id: "m1", sender: "Kevin", initials: "KV", text: "Alright, I'm feeling extremely bold today. Someone get in the ring with me.", system: false, ts: "2:10 PM" },
-  { id: "m2", sender: "Matt", initials: "MT", text: "Oh yeah? What's the move 👀", system: false, ts: "2:11 PM" },
-  { id: "m3", sender: "System", initials: "SY", bet: BETS[0], system: true, ts: "2:14 PM" },
-  { id: "m4", sender: "Jordan", initials: "JD", text: "LMAOOO Kevin is not playing around 💀", system: false, ts: "2:15 PM" },
-  { id: "m5", sender: "Sarah", initials: "SR", text: "Matt you better have your running shoes ready 👟", system: false, ts: "2:16 PM" },
-  { id: "m6", sender: "System", initials: "SY", bet: BETS[1], system: true, ts: "11:02 AM" },
-  { id: "m7", sender: "Kevin", initials: "KV", text: "Dev bets hit different fr. AI doesn't lie 🤖", system: false, ts: "2:18 PM" },
-  { id: "m8", sender: "Matt", initials: "MT", text: "Fine. Fine. I accept. But if I lose I'm deleting the app 😤", system: false, ts: "2:19 PM" },
-];
-
-const INITIAL_MESSAGES_BY_GROUP: Record<string, Msg[]> = {
-  "1": INITIAL_MESSAGES,
-  "2": [],
-  "3": [],
-  "4": [],
-};
-
+type Msg = ChatMessage;
 function toInitials(name: string): string {
-  const parts = name.trim().split(/\s+/).filter(Boolean).slice(0, 2);
-  if (!parts.length) return "??";
-  return parts.map((part) => part[0]?.toUpperCase() ?? "").join("");
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "NA";
+  if (parts.length === 1) return parts[0]!.slice(0, 2).toUpperCase();
+  return `${parts[0]![0] ?? ""}${parts[1]![0] ?? ""}`.toUpperCase();
 }
 
-function parseMemberDraft(input: string): { name: string; initials: string }[] {
-  const unique = new Map<string, string>();
-  for (const raw of input.split(",")) {
-    const clean = raw.trim().replace(/\s+/g, " ");
-    if (!clean) continue;
-    const key = clean.toLowerCase();
-    if (!unique.has(key)) unique.set(key, clean);
-  }
-  return Array.from(unique.values()).map((name) => ({ name, initials: toInitials(name) }));
-}
-
-function makePlaceholderMembers(count: number): { name: string; initials: string }[] {
-  return Array.from({ length: Math.max(count - 1, 0) }, (_, index) => {
-    const position = index + 1;
-    const name = `Member ${position}`;
-    return { name, initials: toInitials(name) };
-  });
-}
-
-/* ── Embedded Bet Card ─────────────────────────────────── */
-function BetTypeTag({ type }: { type: BetType }) {
-  return (
-    <Pill color={type === "DEV" ? "teal" : "purple"}>
-      {type === "DEV" ? <Zap size={8} /> : <Shield size={8} />}
-      BET TYPE: {type}
-    </Pill>
-  );
-}
-
-function StatusTag({ status }: { status: BetStatus }) {
-  const map: Record<BetStatus, { color: "amber" | "teal" | "muted"; icon: typeof Clock }> = {
-    PENDING: { color: "amber", icon: Clock },
-    ACTIVE: { color: "teal", icon: CheckCircle2 },
-    RESOLVED: { color: "muted", icon: AlertTriangle },
+function StatusTag({ status }: { status: Bet["status"] }) {
+  const map = {
+    PENDING: { color: "amber" as const, icon: Clock },
+    ACTIVE: { color: "teal" as const, icon: CheckCircle2 },
+    RESOLVED: { color: "muted" as const, icon: AlertTriangle },
   };
-  const { color, icon: Icon } = map[status];
+  const meta = map[status] ?? map.PENDING;
+  const Icon = meta.icon;
   return (
-    <Pill color={color}>
+    <Pill color={meta.color}>
       <Icon size={8} />
       {status}
     </Pill>
@@ -169,639 +44,398 @@ function StatusTag({ status }: { status: BetStatus }) {
 }
 
 function EmbeddedBetCard({ bet }: { bet: Bet }) {
-  const [hovered, setHovered] = useState(false);
-
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 6, scale: 0.98 }}
-      animate={{ opacity: 1, y: 0, scale: 1 }}
-      transition={{ duration: 0.28, ease: [0.25, 0.46, 0.45, 0.94] }}
-      onHoverStart={() => setHovered(true)}
-      onHoverEnd={() => setHovered(false)}
-      className="w-full max-w-[420px] rounded-2xl border overflow-hidden transition-all duration-200"
-      style={{
-        background: "var(--card)",
-        borderColor: hovered
-          ? bet.type === "DEV" ? "rgba(20,241,149,0.35)" : "rgba(153,69,255,0.35)"
-          : "var(--border)",
-        boxShadow: hovered
-          ? bet.type === "DEV"
-            ? "0 0 0 1px rgba(20,241,149,0.15), 0 8px 24px rgba(0,0,0,0.15)"
-            : "0 0 0 1px rgba(153,69,255,0.15), 0 8px 24px rgba(0,0,0,0.15)"
-          : "0 2px 8px rgba(0,0,0,0.08)",
-      }}
-    >
+    <div className="w-full max-w-[420px] rounded-2xl border border-border overflow-hidden bg-card">
       <div className="flex items-center justify-between px-4 py-2.5 border-b border-border">
-        <BetTypeTag type={bet.type} />
-        <div className="flex items-center gap-2">
-          <StatusTag status={bet.status} />
-          <Mono className="text-muted-foreground" style={{ fontSize: "10px" } as React.CSSProperties}>
-            #{bet.id.toUpperCase()}
-          </Mono>
-        </div>
+        <Pill color={bet.type === "DEV" ? "teal" : "purple"}>
+          BET TYPE: {bet.type}
+        </Pill>
+        <StatusTag status={bet.status} />
       </div>
-
-      <div className="px-4 pt-4 pb-3">
-        <p className="text-foreground leading-snug" style={{ fontSize: "16px", fontWeight: 700, letterSpacing: "-0.01em" }}>
+      <div className="px-4 py-3">
+        <p className="text-foreground leading-snug" style={{ fontSize: "15px", fontWeight: 600 }}>
           "{bet.terms}"
         </p>
-        <div className="mt-3 flex items-center gap-2.5">
-          <span
-            className="px-2.5 py-1 rounded-lg"
-            style={{
-              background: bet.currency === "SOL" ? "rgba(153,69,255,0.12)" : "rgba(255,184,0,0.12)",
-              color: bet.currency === "SOL" ? "#9945FF" : "#FFB800",
-              fontSize: "15px",
-              fontWeight: 700,
-              fontFamily: "'JetBrains Mono', monospace",
-            }}
-          >
-            {bet.stake} {bet.currency}
-          </span>
-          <span className="text-muted-foreground" style={{ fontSize: "12px" }}>
-            locked in escrow on accept
-          </span>
-        </div>
-      </div>
-
-      <div className="px-4 pb-3 flex items-center justify-between">
-        <Mono className="text-muted-foreground" style={{ fontSize: "10px" } as React.CSSProperties}>
-          Min {bet.minBettors} Bettors · {bet.witnesses} Witness Required · Group ≥ 3{" "}
-          <span style={{ color: "#14F195" }}>✓ valid ({bet.groupSize} members)</span>
+        <Mono className="text-muted-foreground mt-2 block" style={{ fontSize: "10px" } as React.CSSProperties}>
+          STAKE: {bet.stake} {bet.currency}
         </Mono>
-        <motion.button
-          whileHover={{ scale: 1.02 }}
-          whileTap={{ scale: 0.97 }}
-          className="flex items-center gap-1 px-3 py-1.5 rounded-lg border font-semibold transition-colors"
-          style={{
-            fontSize: "11px",
-            color: bet.type === "DEV" ? "#14F195" : "#9945FF",
-            borderColor: bet.type === "DEV" ? "rgba(20,241,149,0.3)" : "rgba(153,69,255,0.3)",
-            background: bet.type === "DEV" ? "rgba(20,241,149,0.08)" : "rgba(153,69,255,0.08)",
-            fontFamily: "'JetBrains Mono', monospace",
-          }}
-        >
-          Accept <ChevronRight size={10} />
-        </motion.button>
-      </div>
-    </motion.div>
-  );
-}
-
-/* ── Chat message ──────────────────────────────────────── */
-function Message({ msg }: { msg: Msg }) {
-  if (msg.system && msg.bet) {
-    return (
-      <div className="flex flex-col gap-1.5">
-        <div className="flex items-center gap-1.5 text-muted-foreground" style={{ fontSize: "11px" }}>
-          <Zap size={10} className="text-primary" />
-          <Mono style={{ fontSize: "10px" } as React.CSSProperties}>
-            AccountabiliBuddy · system card · {msg.ts}
-          </Mono>
-        </div>
-        <EmbeddedBetCard bet={msg.bet} />
-      </div>
-    );
-  }
-
-  const isMe = msg.sender === "Me";
-
-  return (
-    <div className={`flex items-start gap-2.5 ${isMe ? "flex-row-reverse" : ""}`}>
-      <Avatar initials={msg.initials} size={32} />
-      <div className={`flex-1 min-w-0 ${isMe ? "flex flex-col items-end" : ""}`}>
-        <div className={`flex items-baseline gap-2 mb-0.5 ${isMe ? "flex-row-reverse" : ""}`}>
-          <span className="text-foreground" style={{ fontSize: "13px", fontWeight: 600 }}>{msg.sender}</span>
-          <Mono className="text-muted-foreground" style={{ fontSize: "10px" } as React.CSSProperties}>{msg.ts}</Mono>
-        </div>
-        <p
-          className="leading-relaxed"
-          style={{
-            fontSize: "14px",
-            color: isMe ? "#fff" : "var(--foreground)",
-            opacity: isMe ? undefined : 0.85,
-            background: isMe ? "linear-gradient(135deg, #9945FF, #7B35FF)" : undefined,
-            padding: isMe ? "8px 14px" : undefined,
-            borderRadius: isMe ? "16px 16px 4px 16px" : undefined,
-            display: isMe ? "inline-block" : "block",
-          }}
-        >
-          {msg.text}
-        </p>
       </div>
     </div>
   );
 }
 
-/* ── Main view ─────────────────────────────────────────── */
-export function ChatView() {
-  const [activeGroup, setActiveGroup] = useState("1");
+function Message({ msg, bet }: { msg: Msg; bet?: Bet }) {
+  if (msg.system && bet) {
+    return (
+      <div className="flex flex-col gap-1.5">
+        <Mono className="text-muted-foreground" style={{ fontSize: "10px" } as React.CSSProperties}>
+          system card · {msg.ts}
+        </Mono>
+        <EmbeddedBetCard bet={bet} />
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex items-start gap-2.5">
+      <Avatar initials={msg.initials} size={32} />
+      <div className="flex-1 min-w-0">
+        <div className="flex items-baseline gap-2 mb-0.5">
+          <span className="text-foreground" style={{ fontSize: "13px", fontWeight: 600 }}>{msg.sender}</span>
+          <Mono className="text-muted-foreground" style={{ fontSize: "10px" } as React.CSSProperties}>{msg.ts}</Mono>
+        </div>
+        <p className="text-foreground/85 leading-relaxed" style={{ fontSize: "14px" }}>{msg.text}</p>
+      </div>
+    </div>
+  );
+}
+
+export function ChatView({ currentUser }: { currentUser: AuthUser }) {
+  const [activeGroup, setActiveGroup] = useState<string>("");
   const [input, setInput] = useState("");
   const [betModalOpen, setBetModalOpen] = useState(false);
-  const [createGroupOpen, setCreateGroupOpen] = useState(false);
-  const [newGroupName, setNewGroupName] = useState("");
-  const [newGroupMembers, setNewGroupMembers] = useState("");
-  const [createGroupError, setCreateGroupError] = useState<string | null>(null);
-  const [creatingGroup, setCreatingGroup] = useState(false);
+  const [groups, setGroups] = useState<Group[]>([]);
+  const [bets, setBets] = useState<Bet[]>([]);
+  const [messages, setMessages] = useState<Msg[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshError, setRefreshError] = useState<string | null>(null);
+  const [sending, setSending] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
 
-  const [groups, setGroups] = useState<(typeof GROUPS[number] | ApiGroup)[]>(GROUPS);
-  const [bets, setBets] = useState<Bet[]>(BETS);
-  const [messagesByGroup, setMessagesByGroup] = useState<Record<string, Msg[]>>(INITIAL_MESSAGES_BY_GROUP);
-  const [groupMembersByGroup, setGroupMembersByGroup] = useState<Record<string, { name: string; initials: string }[]>>(GROUP_MEMBERS_BY_GROUP);
-  const [live, setLive] = useState(false);
-  const messages = messagesByGroup[activeGroup] ?? [];
-  const activeGroupData = groups.find((g) => g.id === activeGroup) ?? groups[0];
-  const activeGroupMembers = groupMembersByGroup[activeGroup] ?? [];
-  const hasChallengeTargets = activeGroupMembers.length > 0;
-  const draftedMembers = parseMemberDraft(newGroupMembers);
-  const projectedGroupSize = draftedMembers.length + 1;
+  const betsById = useMemo(
+    () => Object.fromEntries(bets.map((bet) => [bet.id, bet])) as Record<string, Bet>,
+    [bets],
+  );
+  const activeGroupData = groups.find((group) => group.id === activeGroup) ?? null;
+  const modalGroupMembers = useMemo(() => {
+    const normalizedMembers = (activeGroupData?.memberUsernames ?? [])
+      .map((value) => value.trim())
+      .filter((value): value is string => Boolean(value));
+    const seen = new Set<string>();
+    const dedupedMembers: string[] = [];
+    for (const member of normalizedMembers) {
+      const key = member.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      dedupedMembers.push(member);
+    }
+    const currentUsername = currentUser.username.trim();
+    if (currentUsername && !seen.has(currentUsername.toLowerCase())) {
+      dedupedMembers.unshift(currentUsername);
+    }
+    if (dedupedMembers.length === 0) {
+      dedupedMembers.push(currentUser.username);
+    }
+    return dedupedMembers.map((name) => ({ name, initials: toInitials(name) }));
+  }, [activeGroupData?.memberUsernames, currentUser.username]);
 
-  const betsById = Object.fromEntries(bets.map((b) => [b.id, b])) as Record<string, Bet>;
+  async function refreshGroupsAndBets(): Promise<void> {
+    const [groupsRes, betsRes] = await Promise.all([getGroups(), getBets()]);
+    const nextGroups = groupsRes.groups;
+    setGroups(nextGroups);
+    setBets(betsRes.bets);
+    if (nextGroups.length > 0) {
+      if (!nextGroups.some((group) => group.id === activeGroup)) {
+        setActiveGroup(nextGroups[0]!.id);
+      }
+    } else {
+      setActiveGroup("");
+      setMessages([]);
+    }
+  }
 
-  function toMsg(m: ChatMessage): Msg {
-    return {
-      id: m.id,
-      sender: m.sender,
-      initials: m.initials,
-      text: m.text,
-      bet: m.betId ? betsById[m.betId] : undefined,
-      system: m.system,
-      ts: m.ts,
-    };
+  async function refreshMessages(groupId: string): Promise<void> {
+    const { messages } = await getMessages(groupId);
+    setMessages(messages);
   }
 
   useEffect(() => {
     let alive = true;
-    Promise.all([getGroups(), getBets()])
-      .then(([g, b]) => {
+    setLoading(true);
+    setRefreshError(null);
+    void refreshGroupsAndBets()
+      .catch((err) => {
         if (!alive) return;
-        if (b.bets.length) setBets(b.bets as Bet[]);
-        if (g.groups.length) {
-          setGroups(g.groups);
-          setGroupMembersByGroup((prev) => {
-            const next = { ...prev };
-            for (const group of g.groups) {
-              if (!next[group.id]) next[group.id] = makePlaceholderMembers(group.members);
-            }
-            return next;
-          });
-          setLive(true);
-        }
+        setRefreshError(err instanceof Error ? err.message : String(err));
       })
-      .catch(() => { /* relayer offline or DB unconfigured — keep fixtures */ });
-    return () => { alive = false; };
+      .finally(() => {
+        if (alive) setLoading(false);
+      });
+    const interval = setInterval(() => {
+      void refreshGroupsAndBets().catch(() => {});
+    }, 3000);
+    return () => {
+      alive = false;
+      clearInterval(interval);
+    };
   }, []);
 
   useEffect(() => {
-    if (!live) return;
-    let alive = true;
-    getMessages(activeGroup)
-      .then(({ messages: groupMessages }) => {
-        if (!alive) return;
-        setMessagesByGroup((prev) => ({ ...prev, [activeGroup]: groupMessages.map(toMsg) }));
-      })
-      .catch(() => { /* keep whatever is shown */ });
-    return () => { alive = false; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeGroup, live]);
+    if (!activeGroup) return;
+    void refreshMessages(activeGroup).catch(() => {});
+    const interval = setInterval(() => {
+      void refreshMessages(activeGroup).catch(() => {});
+    }, 2000);
+    return () => {
+      clearInterval(interval);
+    };
+  }, [activeGroup]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  async function sendMessage() {
+  async function sendMessage(): Promise<void> {
     const text = input.trim();
-    if (!text) return;
-    const groupId = activeGroup;
-    const ts = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-    setInput("");
-
-    const optimistic: Msg = {
-      id: `local-${Date.now()}`,
-      sender: "Me",
-      initials: "ME",
-      text,
-      system: false,
-      ts,
-    };
-
-    setMessagesByGroup((prev) => ({ ...prev, [groupId]: [...(prev[groupId] ?? []), optimistic] }));
-    setGroups((prev) => prev.map((g) => (g.id === groupId ? { ...g, lastMsg: text, time: ts } : g)));
-    if (!live) return;
-
+    if (!text || !activeGroup) return;
+    setSending(true);
     try {
-      const { message } = await postMessage({ groupId, sender: "Me", initials: "ME", text });
-      setMessagesByGroup((prev) => ({
-        ...prev,
-        [groupId]: (prev[groupId] ?? []).map((m) => (m.id === optimistic.id ? toMsg(message) : m)),
-      }));
-      setGroups((prev) =>
-        prev.map((g) => (
-          g.id === groupId
-            ? { ...g, lastMsg: message.text ?? "New message", time: message.ts }
-            : g
-        )),
-      );
-    } catch {
-      /* leave the optimistic message in place */
-    }
-  }
-
-  function handleBetSend(bet: NewBet) {
-    if (!activeGroupData || !hasChallengeTargets) return;
-
-    const now = Date.now();
-    const ts = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-    const groupId = activeGroup;
-    const newBet: Bet = {
-      id: `bet-${now}`,
-      type: bet.type,
-      challenger: "Me",
-      acceptor: bet.acceptor,
-      terms: bet.terms,
-      stake: bet.stake,
-      currency: bet.currency,
-      status: "PENDING",
-      witnesses: 0,
-      minBettors: 2,
-      groupSize: activeGroupData.members,
-    };
-    const myMsg: Msg = {
-      id: `m${now - 1}`,
-      sender: "Me",
-      initials: "ME",
-      text: `Just dropped a ${bet.type === "DEV" ? "Dev" : "Personal"} Bet — ${bet.acceptor ? `@${bet.acceptor}, ` : ""}you up for it? 👀`,
-      system: false,
-      ts,
-    };
-    const systemMsg: Msg = {
-      id: `m${now}`,
-      sender: "System",
-      initials: "SY",
-      bet: newBet,
-      system: true,
-      ts,
-    };
-    setMessagesByGroup((prev) => ({ ...prev, [groupId]: [...(prev[groupId] ?? []), myMsg, systemMsg] }));
-    setGroups((prev) => prev.map((g) => (g.id === groupId ? { ...g, lastMsg: myMsg.text ?? "New bet posted", time: ts } : g)));
-  }
-  function openCreateGroupModal() {
-    setCreateGroupOpen(true);
-    setNewGroupName("");
-    setNewGroupMembers("");
-    setCreateGroupError(null);
-  }
-
-  function closeCreateGroupModal() {
-    if (creatingGroup) return;
-    setCreateGroupOpen(false);
-    setCreateGroupError(null);
-  }
-
-  async function handleCreateGroup() {
-    const trimmed = newGroupName.trim();
-    const invitedMembers = parseMemberDraft(newGroupMembers);
-    if (!trimmed) {
-      setCreateGroupError("Group name is required.");
-      return;
-    }
-
-    setCreateGroupError(null);
-    setCreatingGroup(true);
-    const memberCount = invitedMembers.length + 1;
-    const ts = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-
-    if (!live) {
-      const localGroup = {
-        id: `local-${Date.now()}`,
-        name: trimmed,
-        initials: toInitials(trimmed),
-        members: memberCount,
-        pendingBet: false,
-        lastMsg: "Group created",
-        time: ts,
-      };
-      setGroups((prev) => [localGroup, ...prev]);
-      setActiveGroup(localGroup.id);
-      setMessagesByGroup((prev) => ({ ...prev, [localGroup.id]: [] }));
-      setGroupMembersByGroup((prev) => ({ ...prev, [localGroup.id]: invitedMembers }));
-      setCreateGroupOpen(false);
-      setCreatingGroup(false);
-      return;
-    }
-
-    try {
-      const { group } = await createGroup({
-        name: trimmed,
-        initials: toInitials(trimmed),
-        members: memberCount,
+      await postMessage({
+        groupId: activeGroup,
+        sender: currentUser.username,
+        initials: currentUser.initials,
+        text,
       });
-      setGroups((prev) => [group, ...prev]);
-      setActiveGroup(group.id);
-      setMessagesByGroup((prev) => ({ ...prev, [group.id]: [] }));
-      setGroupMembersByGroup((prev) => ({ ...prev, [group.id]: invitedMembers }));
-      setCreateGroupOpen(false);
-    } catch {
-      setCreateGroupError("Could not create group right now. Please try again.");
+      setInput("");
+      await refreshMessages(activeGroup);
+      void refreshGroupsAndBets();
     } finally {
-      setCreatingGroup(false);
+      setSending(false);
     }
   }
 
-  if (!activeGroupData) return null;
+  async function handleCreateGroup(): Promise<void> {
+    const name = window.prompt("New group name");
+    if (!name || !name.trim()) return;
+    const { group } = await createGroup({
+      name: name.trim(),
+      members: 1,
+      creatorUsername: currentUser.username,
+    });
+    setActiveGroup(group.id);
+    await refreshGroupsAndBets();
+    await refreshMessages(group.id);
+  }
+
+  async function handleAddUserToGroup(): Promise<void> {
+    if (!activeGroup || !activeGroupData) return;
+    const username = window.prompt(`Add which username to ${activeGroupData.name}?`);
+    if (!username || !username.trim()) return;
+    const result = await addGroupMemberByUsername(activeGroup, username.trim());
+    setGroups((prev) => prev.map((group) => (group.id === result.group.id ? result.group : group)));
+    window.alert(
+      result.alreadyMember
+        ? `@${result.addedUsername} is already in this group.`
+        : `Added @${result.addedUsername} to ${result.group.name}.`,
+    );
+  }
+
+  function handleSendBet(bet: NewBet): void {
+    if (!activeGroup || !activeGroupData) return;
+    const messageText = bet.type === "DEV"
+      ? `🔥 New dev bet: ${bet.terms} · Stake: ${bet.stake} ${bet.currency}`
+      : `🎯 New personal bet vs ${bet.acceptor}: ${bet.terms} · Stake: ${bet.stake} ${bet.currency}`;
+    const groupId = activeGroup;
+    void postMessage({
+      groupId,
+      sender: currentUser.username,
+      initials: currentUser.initials,
+      text: messageText,
+    })
+      .then(async () => {
+        await refreshMessages(groupId);
+        await refreshGroupsAndBets();
+      })
+      .catch((err) => {
+        window.alert(`Failed to post bet: ${err instanceof Error ? err.message : String(err)}`);
+      });
+  }
 
   return (
     <>
       <div className="flex h-full rounded-2xl border border-border overflow-hidden" style={{ background: "var(--card)" }}>
-        <div className="w-60 flex flex-col shrink-0 border-r border-border" style={{ background: "var(--muted)" }}>
-          <div className="px-4 py-3 border-b border-border">
-            <Mono className="text-muted-foreground uppercase" style={{ fontSize: "9px", letterSpacing: "0.1em" } as React.CSSProperties}>
-              Group Chats
-            </Mono>
-          </div>
-
-          <div className="flex-1 overflow-y-auto py-1.5 space-y-0.5 px-1.5">
-            {groups.map((g) => (
-              <button
-                key={g.id}
-                onClick={() => setActiveGroup(g.id)}
-                className={`w-full flex items-center gap-2.5 px-2.5 py-2.5 rounded-xl text-left transition-all duration-150 ${
-                  activeGroup === g.id ? "bg-primary/10" : "hover:bg-card"
-                }`}
-              >
-                <div className="relative shrink-0">
-                  <Avatar initials={g.initials} size={34} />
-                  {g.pendingBet && (
-                    <span
-                      className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-card"
-                      style={{ background: "#FFB800" }}
-                    />
-                  )}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center justify-between gap-1">
-                    <span
-                      className={`truncate ${activeGroup === g.id ? "text-primary" : "text-foreground"}`}
-                      style={{ fontSize: "12px", fontWeight: 600 }}
-                    >
-                      {g.name}
-                    </span>
-                    <Mono className="text-muted-foreground shrink-0" style={{ fontSize: "9px" } as React.CSSProperties}>
-                      {g.time}
-                    </Mono>
-                  </div>
-                  <div className="flex items-center gap-1 mt-0.5">
-                    <Users size={9} className="text-muted-foreground shrink-0" />
-                    <span className="text-muted-foreground truncate" style={{ fontSize: "11px" }}>
-                      {g.members} · {g.lastMsg}
-                    </span>
-                  </div>
-                </div>
-              </button>
-            ))}
-          </div>
-
-          <div className="p-2 border-t border-border">
-            <button
-              onClick={openCreateGroupModal}
-              className="w-full flex items-center justify-center gap-1.5 py-2 rounded-xl border border-dashed border-border text-muted-foreground hover:text-primary hover:border-primary/30 transition-colors"
-              style={{ fontSize: "11px" }}
-            >
-              <Hash size={11} /> Create Group
-            </button>
-          </div>
+      <div className="w-60 flex flex-col shrink-0 border-r border-border" style={{ background: "var(--muted)" }}>
+        <div className="px-4 py-3 border-b border-border">
+          <Mono className="text-muted-foreground uppercase" style={{ fontSize: "9px", letterSpacing: "0.1em" } as React.CSSProperties}>
+            Group Chats
+          </Mono>
         </div>
 
-        <div className="flex-1 flex flex-col min-w-0">
-          <div className="flex items-center justify-between px-5 py-3 border-b border-border shrink-0">
-            <div className="flex items-center gap-3">
-              <Avatar initials={activeGroupData.initials} size={36} />
-              <div>
-                <p className="text-foreground" style={{ fontSize: "14px", fontWeight: 700 }}>
-                  {activeGroupData.name}
-                </p>
-                <p className="flex items-center gap-1.5 text-muted-foreground" style={{ fontSize: "11px" }}>
-                  <span className="w-1.5 h-1.5 rounded-full inline-block" style={{ background: "#14F195" }} />
-                  {activeGroupData.members} members · 3 online now
-                </p>
+        <div className="flex-1 overflow-y-auto py-1.5 space-y-0.5 px-1.5">
+          {groups.map((group) => (
+            <button
+              key={group.id}
+              onClick={() => setActiveGroup(group.id)}
+              className={`w-full flex items-center gap-2.5 px-2.5 py-2.5 rounded-xl text-left transition-all duration-150 ${
+                activeGroup === group.id ? "bg-primary/10" : "hover:bg-card"
+              }`}
+            >
+              <div className="relative shrink-0">
+                <Avatar initials={group.initials} size={34} />
+                {group.pendingBet && (
+                  <span
+                    className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-card"
+                    style={{ background: "#FFB800" }}
+                  />
+                )}
               </div>
-            </div>
-            <Pill color="amber">
-              <AlertTriangle size={8} />
-              1 BET PENDING RESOLUTION
-            </Pill>
-          </div>
-
-          <div className="flex-1 overflow-y-auto px-5 py-5 space-y-5">
-            <AnimatePresence initial={false}>
-              {messages.map((msg, i) => (
-                <motion.div
-                  key={msg.id}
-                  initial={{ opacity: 0, y: 8 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.22, delay: i < 8 ? i * 0.04 : 0 }}
-                >
-                  <Message msg={msg} />
-                </motion.div>
-              ))}
-            </AnimatePresence>
-            <div ref={bottomRef} />
-          </div>
-
-          <div className="px-5 py-3.5 border-t border-border shrink-0">
-            <div className="flex items-center gap-2">
-              <motion.button
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.93 }}
-                onClick={() => { if (hasChallengeTargets) setBetModalOpen(true); }}
-                disabled={!hasChallengeTargets}
-                className="flex items-center gap-1.5 px-3 py-2 rounded-xl border font-semibold shrink-0 transition-all duration-150"
-                style={{
-                  fontSize: "11px",
-                  color: hasChallengeTargets ? "#9945FF" : "var(--muted-foreground)",
-                  borderColor: hasChallengeTargets ? "rgba(153,69,255,0.35)" : "var(--border)",
-                  background: hasChallengeTargets ? "rgba(153,69,255,0.08)" : "var(--muted)",
-                  fontFamily: "'JetBrains Mono', monospace",
-                  letterSpacing: "0.04em",
-                  whiteSpace: "nowrap",
-                  opacity: hasChallengeTargets ? 1 : 0.7,
-                  cursor: hasChallengeTargets ? "pointer" : "not-allowed",
-                }}
-              >
-                <Plus size={11} />
-                New Bet
-              </motion.button>
-
-              <div
-                className="flex-1 flex items-center gap-3 px-4 py-2.5 rounded-xl border border-border transition-all duration-150"
-                style={{ background: "var(--muted)" }}
-              >
-                <Paperclip size={14} className="text-muted-foreground shrink-0" />
-                <input
-                  value={input}
-                  onChange={(e) => setInput(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void sendMessage(); } }}
-                  placeholder={`Message ${activeGroupData.name}…`}
-                  className="flex-1 bg-transparent text-foreground placeholder:text-muted-foreground outline-none min-w-0"
-                  style={{ fontSize: "13px" }}
-                />
-                <Smile size={14} className="text-muted-foreground shrink-0 cursor-pointer hover:text-foreground transition-colors" />
-                <motion.button
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.94 }}
-                  onClick={() => void sendMessage()}
-                  className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0 transition-colors"
-                  style={{ background: input.trim() ? "var(--primary)" : "var(--border)" }}
-                >
-                  <Send size={12} className={input.trim() ? "text-white" : "text-muted-foreground"} />
-                </motion.button>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center justify-between gap-1">
+                  <span
+                    className={`truncate ${activeGroup === group.id ? "text-primary" : "text-foreground"}`}
+                    style={{ fontSize: "12px", fontWeight: 600 }}
+                  >
+                    {group.name}
+                  </span>
+                  <Mono className="text-muted-foreground shrink-0" style={{ fontSize: "9px" } as React.CSSProperties}>
+                    {group.time}
+                  </Mono>
+                </div>
+                <div className="flex items-center gap-1 mt-0.5">
+                  <Users size={9} className="text-muted-foreground shrink-0" />
+                  <span className="text-muted-foreground truncate" style={{ fontSize: "11px" }}>
+                    {group.members} · {group.lastMsg}
+                  </span>
+                </div>
               </div>
-            </div>
-            {!hasChallengeTargets && (
-              <div className="mt-2 flex items-center gap-1.5 text-muted-foreground">
-                <UserPlus size={12} />
-                <span style={{ fontSize: "11px" }}>
-                  Add at least one member to this group before creating a challenge.
-                </span>
-              </div>
-            )}
-          </div>
+            </button>
+          ))}
+          {!loading && groups.length === 0 && (
+            <p className="px-2 py-2 text-muted-foreground" style={{ fontSize: "11px" }}>
+              No groups yet — create one to start chatting.
+            </p>
+          )}
+        </div>
+
+        <div className="p-2 border-t border-border">
+          <button
+            onClick={() => { void handleCreateGroup(); }}
+            className="w-full flex items-center justify-center gap-1.5 py-2 rounded-xl border border-dashed border-border text-muted-foreground hover:text-primary hover:border-primary/30 transition-colors"
+            style={{ fontSize: "11px" }}
+          >
+            <Hash size={11} /> New Group
+          </button>
         </div>
       </div>
 
+      <div className="flex-1 flex flex-col min-w-0">
+        <div className="flex items-center justify-between px-5 py-3 border-b border-border shrink-0">
+          <div className="flex items-center gap-3">
+            <Avatar initials={activeGroupData?.initials ?? "NA"} size={36} />
+            <div>
+              <p className="text-foreground" style={{ fontSize: "14px", fontWeight: 700 }}>
+                {activeGroupData?.name ?? "No group selected"}
+              </p>
+              <p className="flex items-center gap-1.5 text-muted-foreground" style={{ fontSize: "11px" }}>
+                <span className="w-1.5 h-1.5 rounded-full inline-block" style={{ background: "#14F195" }} />
+                {activeGroupData ? `${activeGroupData.members} members · live` : "Create or select a group"}
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => { void handleAddUserToGroup(); }}
+              disabled={!activeGroupData}
+              className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              style={{ fontSize: "11px" }}
+            >
+              <UserPlus size={12} />
+              Add user
+            </button>
+            <Pill color="amber">
+              <AlertTriangle size={8} />
+              {refreshError ? "SYNC ERROR" : "LIVE SYNC"}
+            </Pill>
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-5 py-5 space-y-5">
+          {!activeGroup && (
+            <div className="h-full flex items-center justify-center">
+              <Mono className="text-muted-foreground" style={{ fontSize: "11px" } as React.CSSProperties}>
+                Pick a group to start.
+              </Mono>
+            </div>
+          )}
+          <AnimatePresence initial={false}>
+            {messages.map((message, idx) => (
+              <motion.div
+                key={message.id}
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.18, delay: idx < 6 ? idx * 0.03 : 0 }}
+              >
+                <Message msg={message} bet={message.betId ? betsById[message.betId] : undefined} />
+              </motion.div>
+            ))}
+          </AnimatePresence>
+          <div ref={bottomRef} />
+        </div>
+
+        <div className="px-5 py-3.5 border-t border-border shrink-0">
+          <div className="flex items-center gap-2">
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.93 }}
+              onClick={() => setBetModalOpen(true)}
+              disabled={!activeGroupData}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl border font-semibold shrink-0 transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed"
+              style={{
+                fontSize: "11px",
+                color: "#9945FF",
+                borderColor: "rgba(153,69,255,0.35)",
+                background: "rgba(153,69,255,0.08)",
+                fontFamily: "'JetBrains Mono', monospace",
+                letterSpacing: "0.04em",
+                whiteSpace: "nowrap",
+              }}
+            >
+              <Plus size={11} />
+              New Bet
+            </motion.button>
+
+            <div
+              className="flex-1 flex items-center gap-3 px-4 py-2.5 rounded-xl border border-border transition-all duration-150"
+              style={{ background: "var(--muted)" }}
+            >
+              <Paperclip size={14} className="text-muted-foreground shrink-0" />
+              <input
+                value={input}
+                onChange={(event) => setInput(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" && !event.shiftKey) {
+                    event.preventDefault();
+                    void sendMessage();
+                  }
+                }}
+                disabled={!activeGroup || sending}
+                placeholder={activeGroupData ? `Message ${activeGroupData.name}…` : "Create a group first…"}
+                className="flex-1 bg-transparent text-foreground placeholder:text-muted-foreground outline-none min-w-0"
+                style={{ fontSize: "13px" }}
+              />
+              <Smile size={14} className="text-muted-foreground shrink-0" />
+              <motion.button
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.94 }}
+                onClick={() => { void sendMessage(); }}
+                disabled={!activeGroup || !input.trim() || sending}
+                className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0 transition-colors"
+                style={{ background: input.trim() && activeGroup ? "var(--primary)" : "var(--border)" }}
+              >
+                <Send size={12} className={input.trim() && activeGroup ? "text-white" : "text-muted-foreground"} />
+              </motion.button>
+            </div>
+          </div>
+        </div>
+      </div>
+      </div>
       <SendBetModal
         open={betModalOpen}
         onClose={() => setBetModalOpen(false)}
-        onSend={handleBetSend}
-        groupName={activeGroupData.name}
-        groupMembers={activeGroupMembers}
+        onSend={handleSendBet}
+        groupName={activeGroupData?.name ?? "No group selected"}
+        groupMembers={modalGroupMembers}
       />
-
-      <AnimatePresence>
-        {createGroupOpen && (
-          <>
-            <motion.button
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={closeCreateGroupModal}
-              className="fixed inset-0 z-50"
-              style={{ background: "rgba(0,0,0,0.55)", backdropFilter: "blur(2px)" }}
-            />
-            <div className="fixed inset-0 z-[51] flex items-center justify-center p-4 pointer-events-none">
-              <motion.div
-                initial={{ opacity: 0, y: 20, scale: 0.97 }}
-                animate={{ opacity: 1, y: 0, scale: 1 }}
-                exit={{ opacity: 0, y: 10, scale: 0.98 }}
-                transition={{ duration: 0.2 }}
-                className="w-full max-w-md rounded-2xl border border-border overflow-hidden pointer-events-auto"
-                style={{ background: "var(--card)", boxShadow: "0 24px 48px rgba(0,0,0,0.35)" }}
-              >
-                <form onSubmit={(event) => { event.preventDefault(); void handleCreateGroup(); }}>
-                  <div className="px-5 py-4 border-b border-border flex items-start justify-between">
-                    <div>
-                      <p className="text-foreground" style={{ fontSize: "15px", fontWeight: 700 }}>
-                        Create Group
-                      </p>
-                      <p className="text-muted-foreground mt-1" style={{ fontSize: "11px" }}>
-                        Start a new accountability squad and invite your first members.
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={closeCreateGroupModal}
-                      className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-                      disabled={creatingGroup}
-                    >
-                      <X size={14} />
-                    </button>
-                  </div>
-
-                  <div className="px-5 py-4 space-y-4">
-                    <div>
-                      <Mono className="text-muted-foreground uppercase block mb-2" style={{ fontSize: "9px", letterSpacing: "0.1em" } as React.CSSProperties}>
-                        Group name
-                      </Mono>
-                      <input
-                        value={newGroupName}
-                        onChange={(event) => setNewGroupName(event.target.value)}
-                        placeholder="e.g. Solana Sprint Club"
-                        className="w-full px-3 py-2.5 rounded-xl border border-border bg-muted text-foreground placeholder:text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
-                        style={{ fontSize: "13px" }}
-                        maxLength={48}
-                      />
-                    </div>
-
-                    <div>
-                      <Mono className="text-muted-foreground uppercase block mb-2" style={{ fontSize: "9px", letterSpacing: "0.1em" } as React.CSSProperties}>
-                        Invite members (comma-separated)
-                      </Mono>
-                      <input
-                        value={newGroupMembers}
-                        onChange={(event) => setNewGroupMembers(event.target.value)}
-                        placeholder="e.g. Kevin, Jordan, Sarah"
-                        className="w-full px-3 py-2.5 rounded-xl border border-border bg-muted text-foreground placeholder:text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
-                        style={{ fontSize: "13px" }}
-                      />
-                      <p className="text-muted-foreground mt-2" style={{ fontSize: "11px" }}>
-                        You + {draftedMembers.length} invited = {projectedGroupSize} members.
-                      </p>
-                      {draftedMembers.length > 0 && (
-                        <div className="flex flex-wrap gap-1.5 mt-2">
-                          {draftedMembers.map((member) => (
-                            <span
-                              key={member.name}
-                              className="inline-flex items-center gap-1 px-2 py-1 rounded-lg border border-border bg-muted/60 text-muted-foreground"
-                              style={{ fontSize: "11px" }}
-                            >
-                              <Avatar initials={member.initials} size={16} />
-                              {member.name}
-                            </span>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-
-                    {createGroupError && (
-                      <div className="px-2.5 py-2 rounded-lg border border-[#FF4A4A]/30 bg-[#FF4A4A]/10 text-[#FF7E7E]" style={{ fontSize: "11px" }}>
-                        {createGroupError}
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="px-5 py-3.5 border-t border-border flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={closeCreateGroupModal}
-                      disabled={creatingGroup}
-                      className="px-3.5 py-2 rounded-xl border border-border text-muted-foreground hover:text-foreground transition-colors"
-                      style={{ fontSize: "12px", fontWeight: 600 }}
-                    >
-                      Cancel
-                    </button>
-                    <motion.button
-                      type="submit"
-                      whileHover={{ scale: 1.02 }}
-                      whileTap={{ scale: 0.98 }}
-                      disabled={creatingGroup || !newGroupName.trim()}
-                      className="ml-auto inline-flex items-center gap-1.5 px-4 py-2 rounded-xl font-semibold transition-all"
-                      style={{
-                        fontSize: "12px",
-                        background: creatingGroup || !newGroupName.trim() ? "var(--muted)" : "var(--primary)",
-                        color: creatingGroup || !newGroupName.trim() ? "var(--muted-foreground)" : "#fff",
-                      }}
-                    >
-                      <UserPlus size={12} />
-                      {creatingGroup ? "Creating…" : "Create Group"}
-                    </motion.button>
-                  </div>
-                </form>
-              </motion.div>
-            </div>
-          </>
-        )}
-      </AnimatePresence>
     </>
   );
 }

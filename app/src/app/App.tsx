@@ -11,7 +11,15 @@ import { EscrowView }      from "./components/EscrowView";
 import { GitView }         from "./components/GitView";
 import { LeaderboardView } from "./components/LeaderboardView";
 import { useRelayerHealth } from "../lib/useRelayer";
-import { getProfileSummary, type ProfileSummary } from "../lib/relayer";
+import {
+  AUTH_TOKEN_STORAGE_KEY,
+  getCurrentAuthUser,
+  getProfileSummary,
+  loginWithEmail,
+  signupWithEmail,
+  type AuthUser,
+  type ProfileSummary,
+} from "../lib/relayer";
 
 /* ── Navigation config ─────────────────────────────────── */
 type ViewId = "chat" | "escrow" | "git" | "leaderboard";
@@ -83,13 +91,84 @@ export default function App() {
   const [profileLoading, setProfileLoading] = useState(false);
   const [profileError, setProfileError] = useState<string | null>(null);
   const [profile, setProfile] = useState<ProfileSummary | null>(null);
+  const [authReady, setAuthReady] = useState(false);
+  const [authLoading, setAuthLoading] = useState(false);
+  const [authMode, setAuthMode] = useState<"signup" | "login">("signup");
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [authUser, setAuthUser] = useState<AuthUser | null>(null);
+  const [authForm, setAuthForm] = useState({
+    email: "",
+    username: "",
+    password: "",
+  });
 
   /* Apply dark class to <html> */
   useEffect(() => {
     document.documentElement.classList.toggle("dark", dark);
   }, [dark]);
 
+  useEffect(() => {
+    let alive = true;
+    const token = typeof window === "undefined"
+      ? null
+      : window.localStorage.getItem(AUTH_TOKEN_STORAGE_KEY);
+    if (!token) {
+      setAuthReady(true);
+      return () => { alive = false; };
+    }
+    getCurrentAuthUser()
+      .then(({ user }) => {
+        if (!alive) return;
+        setAuthUser(user);
+      })
+      .catch(() => {
+        if (!alive || typeof window === "undefined") return;
+        window.localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
+      })
+      .finally(() => {
+        if (alive) setAuthReady(true);
+      });
+    return () => { alive = false; };
+  }, []);
+
   const activeNav = NAV.find(n => n.id === activeView)!;
+
+  async function submitAuth(event: React.FormEvent<HTMLFormElement>): Promise<void> {
+    event.preventDefault();
+    setAuthError(null);
+    setAuthLoading(true);
+    try {
+      const result = authMode === "signup"
+        ? await signupWithEmail({
+            email: authForm.email,
+            username: authForm.username,
+            password: authForm.password,
+          })
+        : await loginWithEmail({
+            email: authForm.email,
+            password: authForm.password,
+          });
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem(AUTH_TOKEN_STORAGE_KEY, result.token);
+      }
+      setAuthUser(result.user);
+      setAuthForm({ email: "", username: "", password: "" });
+    } catch (err) {
+      setAuthError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setAuthLoading(false);
+    }
+  }
+
+  function logout(): void {
+    if (typeof window !== "undefined") {
+      window.localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
+    }
+    setAuthUser(null);
+    setProfile(null);
+    setProfileOpen(false);
+    setAuthMode("login");
+  }
 
   async function toggleProfile(): Promise<void> {
     const nextOpen = !profileOpen;
@@ -106,6 +185,107 @@ export default function App() {
     } finally {
       setProfileLoading(false);
     }
+  }
+
+  if (!authReady) {
+    return (
+      <div
+        className="min-h-screen flex items-center justify-center"
+        style={{ background: "var(--background)", fontFamily: "'Inter', -apple-system, sans-serif" }}
+      >
+        <Mono className="text-muted-foreground" style={{ fontSize: "11px" } as React.CSSProperties}>
+          Restoring session…
+        </Mono>
+      </div>
+    );
+  }
+
+  if (!authUser) {
+    return (
+      <div
+        className="min-h-screen flex items-center justify-center px-4"
+        style={{ background: "var(--background)", fontFamily: "'Inter', -apple-system, sans-serif" }}
+      >
+        <form
+          onSubmit={(event) => { void submitAuth(event); }}
+          className="w-full max-w-sm rounded-2xl border border-border p-5"
+          style={{ background: "var(--card)" }}
+        >
+          <div className="mb-4">
+            <p className="text-foreground" style={{ fontSize: "20px", fontWeight: 700 }}>
+              {authMode === "signup" ? "Create account" : "Sign in"}
+            </p>
+            <p className="text-muted-foreground mt-1" style={{ fontSize: "12px" }}>
+              Use your own email and username. Accounts are shared through MongoDB.
+            </p>
+          </div>
+
+          <label className="block text-muted-foreground mb-1" style={{ fontSize: "11px" }}>Email</label>
+          <input
+            required
+            type="email"
+            value={authForm.email}
+            onChange={(event) => setAuthForm((prev) => ({ ...prev, email: event.target.value }))}
+            className="w-full px-3 py-2 rounded-lg border border-border bg-transparent text-foreground outline-none mb-3"
+            style={{ fontSize: "13px" }}
+            placeholder="you@email.com"
+          />
+
+          {authMode === "signup" && (
+            <>
+              <label className="block text-muted-foreground mb-1" style={{ fontSize: "11px" }}>Username</label>
+              <input
+                required
+                type="text"
+                value={authForm.username}
+                onChange={(event) => setAuthForm((prev) => ({ ...prev, username: event.target.value }))}
+                className="w-full px-3 py-2 rounded-lg border border-border bg-transparent text-foreground outline-none mb-3"
+                style={{ fontSize: "13px" }}
+                placeholder="banson"
+              />
+            </>
+          )}
+
+          <label className="block text-muted-foreground mb-1" style={{ fontSize: "11px" }}>Password</label>
+          <input
+            required
+            type="password"
+            value={authForm.password}
+            onChange={(event) => setAuthForm((prev) => ({ ...prev, password: event.target.value }))}
+            className="w-full px-3 py-2 rounded-lg border border-border bg-transparent text-foreground outline-none"
+            style={{ fontSize: "13px" }}
+            placeholder="At least 8 characters"
+          />
+
+          {authError && (
+            <p className="mt-3 text-[#FF4A4A]" style={{ fontSize: "11px" }}>
+              {authError}
+            </p>
+          )}
+
+          <button
+            type="submit"
+            disabled={authLoading}
+            className="mt-4 w-full px-3 py-2 rounded-lg text-white transition-opacity"
+            style={{ background: "var(--primary)", opacity: authLoading ? 0.7 : 1, fontSize: "13px", fontWeight: 600 }}
+          >
+            {authLoading ? "Please wait…" : authMode === "signup" ? "Create account" : "Sign in"}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setAuthError(null);
+              setAuthMode((prev) => (prev === "signup" ? "login" : "signup"));
+            }}
+            className="mt-3 w-full text-muted-foreground hover:text-foreground transition-colors"
+            style={{ fontSize: "12px" }}
+          >
+            {authMode === "signup" ? "Already have an account? Sign in" : "Need an account? Sign up"}
+          </button>
+        </form>
+      </div>
+    );
   }
 
   return (
@@ -221,7 +401,7 @@ export default function App() {
               className="rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
               title="Open profile"
             >
-              <Avatar initials={profile?.initials ?? "ME"} size={28} />
+              <Avatar initials={profile?.initials ?? authUser.initials} size={28} />
             </button>
             <AnimatePresence>
               {profileOpen && (
@@ -238,18 +418,26 @@ export default function App() {
                   }}
                 >
                   <div className="flex items-center gap-2.5 mb-3">
-                    <Avatar initials={profile?.initials ?? "ME"} size={34} />
+                    <Avatar initials={profile?.initials ?? authUser.initials} size={34} />
                     <div className="min-w-0">
                       <p className="text-foreground truncate" style={{ fontSize: "13px", fontWeight: 700 }}>
-                        {profile?.name ?? "Me"}
+                        {profile?.name ?? authUser.username}
                       </p>
                       <Mono className="text-muted-foreground truncate block" style={{ fontSize: "10px" } as React.CSSProperties}>
-                        @{profile?.github ?? "me"}
+                        @{profile?.github ?? authUser.username}
                       </Mono>
                     </div>
                   </div>
 
                   <div className="space-y-2">
+                    <div className="rounded-lg border border-border p-2">
+                      <Mono className="text-muted-foreground block" style={{ fontSize: "9px" } as React.CSSProperties}>
+                        EMAIL
+                      </Mono>
+                      <Mono className="text-foreground block mt-0.5" style={{ fontSize: "11px" } as React.CSSProperties}>
+                        {authUser.email}
+                      </Mono>
+                    </div>
                     <div className="rounded-lg border border-border p-2">
                       <Mono className="text-muted-foreground block" style={{ fontSize: "9px" } as React.CSSProperties}>
                         WALLET
@@ -281,6 +469,13 @@ export default function App() {
                       )}
                     </div>
                   </div>
+                  <button
+                    onClick={logout}
+                    className="mt-3 w-full rounded-lg border border-border px-2 py-1.5 text-muted-foreground hover:text-foreground transition-colors"
+                    style={{ fontSize: "11px" }}
+                  >
+                    Sign out
+                  </button>
                 </motion.div>
               )}
             </AnimatePresence>
@@ -326,7 +521,7 @@ export default function App() {
                 minHeight: activeView === "chat" ? "520px" : undefined,
               }}
             >
-              {activeView === "chat"        && <ChatView />}
+              {activeView === "chat"        && <ChatView currentUser={authUser} />}
               {activeView === "escrow"      && <EscrowView />}
               {activeView === "git"         && <GitView />}
               {activeView === "leaderboard" && <LeaderboardView />}
