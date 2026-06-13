@@ -5,6 +5,11 @@
 //   SOLANA_RPC_URL    RPC endpoint           (default devnet)
 //   PORT              HTTP port              (default 8787)
 //   POLL_INTERVAL_MS  crank interval ms      (default 60_000)
+//   PROFILE_NAME      profile display name   (default "Me")
+//   PROFILE_INITIALS  profile initials       (default "ME")
+//   PROFILE_GITHUB    profile github handle  (default "me")
+//   PROFILE_WALLET    profile wallet pubkey  (default oracle pubkey)
+//   USDC_MINT         USDC mint pubkey       (default devnet USDC)
 //   MONGODB_URI       Mongo connection string (optional; enables data routes)
 //   MONGODB_DB        Mongo database name     (default "accountabilibuddy")
 
@@ -29,6 +34,10 @@ const RPC_URL         = process.env.SOLANA_RPC_URL ?? web3.clusterApiUrl("devnet
 const ORACLE_KP_PATH  = process.env.ORACLE_KEYPAIR ?? "~/.config/solana/id.json";
 const PORT            = Number(process.env.PORT ?? 8787);
 const POLL_INTERVAL   = Number(process.env.POLL_INTERVAL_MS ?? 60_000);
+const PROFILE_NAME    = process.env.PROFILE_NAME ?? "Me";
+const PROFILE_INITIALS = process.env.PROFILE_INITIALS ?? "ME";
+const PROFILE_GITHUB   = process.env.PROFILE_GITHUB ?? "me";
+const DEFAULT_USDC_MINT = "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU";
 
 const VAULT_SEED        = Buffer.from("vault");
 const SPORTS_VAULT_SEED = Buffer.from("sports_vault");
@@ -39,6 +48,8 @@ const oracle   = loadKeypair(ORACLE_KP_PATH);
 const connection = new web3.Connection(RPC_URL, "confirmed");
 const provider   = new AnchorProvider(connection, new Wallet(oracle), AnchorProvider.defaultOptions());
 const program    = new Program<Accountability>(idl as Accountability, provider);
+const profileWallet = parsePublicKey(process.env.PROFILE_WALLET, oracle.publicKey);
+const usdcMint = parsePublicKey(process.env.USDC_MINT, new web3.PublicKey(DEFAULT_USDC_MINT));
 
 // ── original accountability crank ─────────────────────────────────────────────
 
@@ -212,6 +223,22 @@ const server = http.createServer(async (req, res) => {
         rpc:     RPC_URL,
         slot,
         db:      isDbConfigured() ? "configured" : "unconfigured",
+      });
+    }
+
+    // GET /profile
+    if (req.method === "GET" && req.url === "/profile") {
+      const usdcBalance = await fetchUsdcBalance(profileWallet, usdcMint).catch((err) => {
+        console.error("failed to fetch USDC balance:", err);
+        return 0;
+      });
+      return json(res, 200, {
+        name: PROFILE_NAME,
+        initials: PROFILE_INITIALS,
+        github: PROFILE_GITHUB,
+        wallet: profileWallet.toBase58(),
+        usdcMint: usdcMint.toBase58(),
+        usdcBalance,
       });
     }
 
@@ -462,6 +489,29 @@ function loadKeypair(filename: string): web3.Keypair {
   return web3.Keypair.fromSecretKey(
     Uint8Array.from(JSON.parse(fs.readFileSync(expanded, "utf8")) as number[])
   );
+}
+
+function parsePublicKey(value: string | undefined, fallback: web3.PublicKey): web3.PublicKey {
+  if (!value) return fallback;
+  try {
+    return new web3.PublicKey(value);
+  } catch {
+    console.warn(`invalid public key "${value}", falling back to ${fallback.toBase58()}`);
+    return fallback;
+  }
+}
+
+async function fetchUsdcBalance(owner: web3.PublicKey, mint: web3.PublicKey): Promise<number> {
+  const accounts = await connection.getParsedTokenAccountsByOwner(owner, { mint }, "confirmed");
+  let total = 0;
+  for (const item of accounts.value) {
+    const parsed = item.account.data as {
+      parsed?: { info?: { tokenAmount?: { uiAmount?: number } } };
+    };
+    const amount = Number(parsed.parsed?.info?.tokenAmount?.uiAmount ?? 0);
+    if (Number.isFinite(amount)) total += amount;
+  }
+  return total;
 }
 
 function readJson(req: http.IncomingMessage): Promise<Record<string, unknown>> {

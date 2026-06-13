@@ -3,7 +3,7 @@ import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
   MessageSquare, Shield, GitBranch, BarChart3,
-  Zap, Sun, Moon, Bell, Settings, ChevronRight
+  Zap, Sun, Moon, Bell, ChevronRight
 } from "lucide-react";
 import { Mono, Avatar, Pill } from "./components/ui";
 import { ChatView }        from "./components/ChatView";
@@ -11,9 +11,14 @@ import { EscrowView }      from "./components/EscrowView";
 import { GitView }         from "./components/GitView";
 import { LeaderboardView } from "./components/LeaderboardView";
 import { useRelayerHealth } from "../lib/useRelayer";
+import { getProfileSummary, type ProfileSummary } from "../lib/relayer";
 
 /* ── Navigation config ─────────────────────────────────── */
 type ViewId = "chat" | "escrow" | "git" | "leaderboard";
+
+function shortAddress(address: string): string {
+  return `${address.slice(0, 4)}…${address.slice(-4)}`;
+}
 
 const NAV: {
   id:       ViewId;
@@ -74,6 +79,10 @@ function StatusBar() {
 export default function App() {
   const [dark,       setDark]       = useState(true);
   const [activeView, setActiveView] = useState<ViewId>("chat");
+  const [profileOpen, setProfileOpen] = useState(false);
+  const [profileLoading, setProfileLoading] = useState(false);
+  const [profileError, setProfileError] = useState<string | null>(null);
+  const [profile, setProfile] = useState<ProfileSummary | null>(null);
 
   /* Apply dark class to <html> */
   useEffect(() => {
@@ -81,6 +90,23 @@ export default function App() {
   }, [dark]);
 
   const activeNav = NAV.find(n => n.id === activeView)!;
+
+  async function toggleProfile(): Promise<void> {
+    const nextOpen = !profileOpen;
+    setProfileOpen(nextOpen);
+    if (!nextOpen) return;
+
+    setProfileLoading(true);
+    setProfileError(null);
+    try {
+      const nextProfile = await getProfileSummary();
+      setProfile(nextProfile);
+    } catch (err) {
+      setProfileError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setProfileLoading(false);
+    }
+  }
 
   return (
     <div
@@ -189,8 +215,75 @@ export default function App() {
               </motion.span>
             </AnimatePresence>
           </button>
-          <div className="ml-1">
-            <Avatar initials="ME" size={28} />
+          <div className="relative ml-1">
+            <button
+              onClick={() => { void toggleProfile(); }}
+              className="rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+              title="Open profile"
+            >
+              <Avatar initials={profile?.initials ?? "ME"} size={28} />
+            </button>
+            <AnimatePresence>
+              {profileOpen && (
+                <motion.div
+                  initial={{ opacity: 0, y: -6, scale: 0.98 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: -6, scale: 0.98 }}
+                  transition={{ duration: 0.14 }}
+                  className="absolute right-0 top-[calc(100%+10px)] w-72 rounded-xl border border-border p-3 z-[60]"
+                  style={{
+                    background: dark ? "rgba(11,15,25,0.98)" : "rgba(255,255,255,0.98)",
+                    boxShadow: "0 10px 30px rgba(0,0,0,0.2)",
+                    backdropFilter: "blur(12px)",
+                  }}
+                >
+                  <div className="flex items-center gap-2.5 mb-3">
+                    <Avatar initials={profile?.initials ?? "ME"} size={34} />
+                    <div className="min-w-0">
+                      <p className="text-foreground truncate" style={{ fontSize: "13px", fontWeight: 700 }}>
+                        {profile?.name ?? "Me"}
+                      </p>
+                      <Mono className="text-muted-foreground truncate block" style={{ fontSize: "10px" } as React.CSSProperties}>
+                        @{profile?.github ?? "me"}
+                      </Mono>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <div className="rounded-lg border border-border p-2">
+                      <Mono className="text-muted-foreground block" style={{ fontSize: "9px" } as React.CSSProperties}>
+                        WALLET
+                      </Mono>
+                      <Mono className="text-foreground block mt-0.5" style={{ fontSize: "11px" } as React.CSSProperties}>
+                        {profile ? shortAddress(profile.wallet) : "—"}
+                      </Mono>
+                    </div>
+                    <div className="rounded-lg border border-border p-2">
+                      <Mono className="text-muted-foreground block" style={{ fontSize: "9px" } as React.CSSProperties}>
+                        ACCOUNT BALANCE (USDC)
+                      </Mono>
+                      {profileLoading ? (
+                        <span className="text-muted-foreground block mt-0.5" style={{ fontSize: "12px" }}>
+                          Loading…
+                        </span>
+                      ) : (
+                        <Mono className="text-foreground block mt-0.5" style={{ fontSize: "15px", fontWeight: 700 } as React.CSSProperties}>
+                          {(profile?.usdcBalance ?? 0).toLocaleString(undefined, {
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 6,
+                          })} USDC
+                        </Mono>
+                      )}
+                      {profileError && (
+                        <span className="text-[#FF4A4A] block mt-1" style={{ fontSize: "10px" }}>
+                          {profileError}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>
         </div>
       </header>
