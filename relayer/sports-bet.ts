@@ -34,8 +34,8 @@ import os from "os";
 import path from "path";
 import { AnchorProvider, BN, Program, Wallet, web3 } from "@anchor-lang/core";
 
-import idl from "../target/idl/accountability.json";
-import type { Accountability } from "../target/types/accountability";
+import idl from "./generated/accountability.json";
+import type { Accountability } from "./generated/accountability";
 
 const SPORTS_BET_SEED   = Buffer.from("sports_bet");
 const SPORTS_VAULT_SEED = Buffer.from("sports_vault");

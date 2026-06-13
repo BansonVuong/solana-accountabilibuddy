@@ -1,6 +1,6 @@
 import { Connection, Keypair, PublicKey, SystemProgram } from "@solana/web3.js";
 import { Program, AnchorProvider, BN, Wallet } from "@anchor-lang/core";
-import idl from "../target/idl/accountability.json";
+import idl from "./generated/accountability.json";
 import fs from "fs";
 
 async function main() {
