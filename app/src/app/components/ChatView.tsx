@@ -622,7 +622,9 @@ export function ChatView({ currentUser }: { currentUser: AuthUser }) {
       terms: bet.terms.trim(),
       stake: bet.stake.trim(),
       currency: bet.currency,
-      witnesses: Math.max(1, Math.ceil(activeGroupData.members / 2)),
+      // Quorum: at least 2 witnesses, and never fewer than 50% (rounded up).
+      // e.g. 2->2, 3->2, 4->2, 5->3, 6->3.
+      witnesses: Math.max(2, Math.ceil(activeGroupData.members / 2)),
       minBettors: 2,
     })
       .then(async () => {

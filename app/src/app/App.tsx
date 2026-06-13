@@ -77,7 +77,15 @@ function StatusBar() {
         </Mono>
       </div>
       <Mono className="text-muted-foreground" style={{ fontSize: "9px" } as React.CSSProperties}>
-        COMMIT {__GIT_COMMIT__}
+        COMMIT{" "}
+        <a
+          href={`https://github.com/BansonVuong/solana-accountabilibuddy/commit/${__GIT_COMMIT__}`}
+          target="_blank"
+          rel="noreferrer"
+          className="underline hover:text-foreground transition-colors"
+        >
+          {__GIT_COMMIT__}
+        </a>
       </Mono>
     </div>
   );
@@ -216,7 +224,7 @@ export default function App() {
               {authMode === "signup" ? "Create account" : "Sign in"}
             </p>
             <p className="text-muted-foreground mt-1" style={{ fontSize: "12px" }}>
-              Use your own email and username. Accounts are shared through MongoDB.
+              Use your own email and username.
             </p>
           </div>
 
