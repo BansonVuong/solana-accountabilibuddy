@@ -10,7 +10,7 @@
 
 export const RELAYER_URL =
   (import.meta.env.VITE_RELAYER_URL as string | undefined) ??
-  "https://66.42.115.38";
+  "https://66.42.115.38.nip.io";
 export const AUTH_TOKEN_STORAGE_KEY = "accountabilibuddy_auth_token";
 
 export interface RelayerHealth {

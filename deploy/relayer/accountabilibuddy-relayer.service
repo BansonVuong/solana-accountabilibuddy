@@ -2,6 +2,7 @@
 Description=AccountabiliBuddy Solana relayer
 After=network-online.target
 Wants=network-online.target
+ConditionPathExists=/etc/accountabilibuddy/oracle.json
 
 [Service]
 Type=simple

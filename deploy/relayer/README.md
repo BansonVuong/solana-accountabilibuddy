@@ -2,7 +2,8 @@
 
 The production relayer runs as the unprivileged `accountabilibuddy` user,
 listens only on `127.0.0.1:8787`, and is exposed through Caddy at
-`https://66.42.115.38`.
+`https://66.42.115.38.nip.io`. The `nip.io` hostname resolves directly to
+`66.42.115.38` and allows Caddy to issue a browser-trusted TLS certificate.
 
 ## Initial install
 
@@ -24,15 +25,15 @@ and other secrets in `/etc/accountabilibuddy/relayer.env`, then start:
 
 ```bash
 sudo systemctl restart accountabilibuddy-relayer
-curl https://66.42.115.38/health
+curl https://66.42.115.38.nip.io/health
 ```
 
 ## Automatic deploys
 
 `accountabilibuddy-update.timer` checks `origin/main` every minute. When a
 fast-forward update exists, it installs locked dependencies, typechecks the
-relayer, and restarts the service. A failed install or typecheck leaves the
-currently running process untouched.
+relayer, refreshes the systemd/Caddy configuration, and restarts the service.
+A failed install or typecheck leaves the currently running process untouched.
 
 ```bash
 systemctl status accountabilibuddy-relayer accountabilibuddy-update.timer caddy

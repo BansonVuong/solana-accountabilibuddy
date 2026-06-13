@@ -16,9 +16,21 @@ if [[ "$deployed" == "$incoming" ]]; then
 fi
 
 if [[ "$current" != "$incoming" ]]; then
-  runuser -u accountabilibuddy -- git merge --ff-only "origin/$branch"
+runuser -u accountabilibuddy -- git merge --ff-only "origin/$branch"
 fi
 runuser -u accountabilibuddy -- npm ci
 runuser -u accountabilibuddy -- npm run relayer:deploy-check
-systemctl restart accountabilibuddy-relayer.service
+
+install -m 644 deploy/relayer/accountabilibuddy-relayer.service /etc/systemd/system/
+install -m 644 deploy/relayer/accountabilibuddy-update.service /etc/systemd/system/
+install -m 644 deploy/relayer/accountabilibuddy-update.timer /etc/systemd/system/
+install -m 644 deploy/relayer/Caddyfile /etc/caddy/Caddyfile
+systemctl daemon-reload
+systemctl reload caddy.service
+
+if [[ -f /etc/accountabilibuddy/oracle.json ]]; then
+  systemctl restart accountabilibuddy-relayer.service
+else
+  systemctl stop accountabilibuddy-relayer.service
+fi
 printf '%s\n' "$incoming" >"$deployed_sha_file"
