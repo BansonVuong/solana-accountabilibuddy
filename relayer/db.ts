@@ -30,6 +30,7 @@ export interface GroupDoc {
   pendingBet: boolean;
   lastMsg: string;
   time: string;
+  updatedAt?: number;
 }
 
 export interface MessageDoc {

@@ -679,7 +679,8 @@ const server = http.createServer(async (req, res) => {
         memberUsernames: [authUser.username],
         pendingBet: false,
         lastMsg: "Group created",
-        time: new Date(now).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+        time: formatChatClock(now),
+        updatedAt: now,
       };
       await col.insertOne(doc);
       return json(res, 201, { group: doc });
@@ -734,7 +735,8 @@ const server = http.createServer(async (req, res) => {
         nextMemberUsernames.length,
         Math.floor(toFiniteNumber(group.members, 1)),
       );
-      const nowLabel = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+      const now = Date.now();
+      const nowLabel = formatChatClock(now);
       await groupsCol.updateOne(
         { id: groupMembersPathId },
         {
@@ -743,6 +745,7 @@ const server = http.createServer(async (req, res) => {
             members: nextMembers,
             lastMsg: `${user.username} joined the group`,
             time: nowLabel,
+            updatedAt: now,
           },
         },
       );
@@ -796,20 +799,21 @@ const server = http.createServer(async (req, res) => {
       if (!isGroupMember(group, authUser.username)) {
         return json(res, 403, { error: "group membership required" });
       }
+      const now = Date.now();
       const doc: MessageDoc = {
-        id:        `m-${Date.now()}`,
+        id:        `m-${now}`,
         groupId:   body.groupId,
         sender:    authUser.username,
         initials:  toInitials(authUser.username),
         text:      typeof body.text === "string" ? body.text : undefined,
         system:    false,
-        ts:        new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-        createdAt: Date.now(),
+        ts:        formatChatClock(now),
+        createdAt: now,
       };
       await messagesCol.insertOne(doc);
       await groupsCol.updateOne(
         { id: body.groupId },
-        { $set: { lastMsg: doc.text ?? "New message", time: doc.ts } },
+        { $set: { lastMsg: doc.text ?? "New message", time: doc.ts, updatedAt: now } },
       );
       const { ...out } = doc;
       return json(res, 201, { message: out });
@@ -873,7 +877,7 @@ const server = http.createServer(async (req, res) => {
       }
 
       const now = Date.now();
-      const ts = new Date(now).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+      const ts = formatChatClock(now);
       const witnesses = Math.max(1, Math.floor(toFiniteNumber(body.witnesses, 1)));
       const minBettors = Math.max(1, Math.floor(toFiniteNumber(body.minBettors, 2)));
       const groupSize = Math.max(1, Math.floor(toFiniteNumber(group.members, 1)));
@@ -976,6 +980,7 @@ const server = http.createServer(async (req, res) => {
             pendingBet: true,
             lastMsg: `${challenger} posted a new ${type === "DEV" ? "dev" : "personal"} bet`,
             time: ts,
+            updatedAt: now,
           },
         },
       );
@@ -1376,6 +1381,9 @@ function parsePublicKey(value: string | undefined, fallback: web3.PublicKey): we
     console.warn(`invalid public key "${value}", falling back to ${fallback.toBase58()}`);
     return fallback;
   }
+}
+function formatChatClock(timestampMs: number): string {
+  return new Date(timestampMs).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 }
 
 async function fetchUsdcBalance(owner: web3.PublicKey, mint: web3.PublicKey): Promise<number> {

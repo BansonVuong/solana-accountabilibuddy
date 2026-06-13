@@ -220,6 +220,7 @@ export interface Group {
   pendingBet: boolean;
   lastMsg: string;
   time: string;
+  updatedAt?: number;
 }
 
 export interface Profile {
@@ -247,6 +248,7 @@ export interface ChatMessage {
   betId?: string;
   system: boolean;
   ts: string;
+  createdAt?: number;
 }
 
 export type BetVoteChoice = "challenger" | "acceptor";

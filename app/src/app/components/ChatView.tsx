@@ -77,6 +77,14 @@ function getResolvedWinner(bet: Bet): BetVoteChoice | undefined {
 function isBetCompleted(bet: Bet): boolean {
   return bet.status === "COMPLETED" || bet.status === "RESOLVED" || Boolean(getResolvedWinner(bet));
 }
+const MIN_REAL_TIMESTAMP_MS = Date.UTC(2000, 0, 1);
+
+function formatChatTime(timestampMs: number | undefined, fallback: string): string {
+  if (typeof timestampMs !== "number" || !Number.isFinite(timestampMs) || timestampMs < MIN_REAL_TIMESTAMP_MS) {
+    return fallback;
+  }
+  return new Date(timestampMs).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+}
 
 function applyVoteToBet(bet: Bet, voter: string, votedFor: BetVoteChoice): Bet {
   if (isBetCompleted(bet) || bet.status !== "ACTIVE") return bet;
@@ -346,11 +354,12 @@ function Message({
   isVoting: (betId: string) => boolean;
   isAccepting: (betId: string) => boolean;
 }) {
+  const timeLabel = formatChatTime(msg.createdAt, msg.ts);
   if (msg.system && bet) {
     return (
       <div className="flex flex-col gap-1.5">
         <Mono className="text-muted-foreground" style={{ fontSize: "10px" } as React.CSSProperties}>
-          system card · {msg.ts}
+          system card · {timeLabel}
         </Mono>
         <EmbeddedBetCard
           bet={bet}
@@ -370,7 +379,7 @@ function Message({
       <div className="flex-1 min-w-0">
         <div className="flex items-baseline gap-2 mb-0.5">
           <span className="text-foreground" style={{ fontSize: "13px", fontWeight: 600 }}>{msg.sender}</span>
-          <Mono className="text-muted-foreground" style={{ fontSize: "10px" } as React.CSSProperties}>{msg.ts}</Mono>
+          <Mono className="text-muted-foreground" style={{ fontSize: "10px" } as React.CSSProperties}>{timeLabel}</Mono>
         </div>
         <p className="text-foreground/85 leading-relaxed" style={{ fontSize: "14px" }}>{msg.text}</p>
       </div>
@@ -693,7 +702,7 @@ export function ChatView({ currentUser }: { currentUser: AuthUser }) {
                     {group.name}
                   </span>
                   <Mono className="text-muted-foreground shrink-0" style={{ fontSize: "9px" } as React.CSSProperties}>
-                    {group.time}
+                    {formatChatTime(group.updatedAt, group.time)}
                   </Mono>
                 </div>
                 <div className="flex items-center gap-1 mt-0.5">
