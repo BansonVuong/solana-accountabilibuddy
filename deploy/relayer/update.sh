@@ -16,10 +16,12 @@ if [[ "$deployed" == "$incoming" ]]; then
 fi
 
 if [[ "$current" != "$incoming" ]]; then
-runuser -u accountabilibuddy -- git merge --ff-only "origin/$branch"
+  runuser -u accountabilibuddy -- git merge --ff-only "origin/$branch"
 fi
 runuser -u accountabilibuddy -- npm ci
 runuser -u accountabilibuddy -- npm run relayer:deploy-check
+runuser -u accountabilibuddy -- npm --prefix app ci
+runuser -u accountabilibuddy -- npm --prefix app run build
 
 install -m 644 deploy/relayer/accountabilibuddy-relayer.service /etc/systemd/system/
 install -m 644 deploy/relayer/accountabilibuddy-update.service /etc/systemd/system/

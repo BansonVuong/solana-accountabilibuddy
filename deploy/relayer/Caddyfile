@@ -1,3 +1,13 @@
 66.42.115.38.nip.io {
-	reverse_proxy 127.0.0.1:8787
+	@api path /health /auth/* /profile /verify /scoreboard /game /sports-bets /settle-bet /groups /groups/* /messages /bets /bets/* /leaderboard /profiles /profiles/*
+
+	handle @api {
+		reverse_proxy 127.0.0.1:8787
+	}
+
+	handle {
+		root * /opt/accountabilibuddy/app/dist
+		try_files {path} /index.html
+		file_server
+	}
 }

@@ -4,6 +4,8 @@ The production relayer runs as the unprivileged `accountabilibuddy` user,
 listens only on `127.0.0.1:8787`, and is exposed through Caddy at
 `https://66.42.115.38.nip.io`. The `nip.io` hostname resolves directly to
 `66.42.115.38` and allows Caddy to issue a browser-trusted TLS certificate.
+The same origin serves the production Vite web app from `app/dist`; known API
+routes are proxied to the private relayer.
 
 ## Initial install
 
@@ -32,8 +34,9 @@ curl https://66.42.115.38.nip.io/health
 
 `accountabilibuddy-update.timer` checks `origin/main` every minute. When a
 fast-forward update exists, it installs locked dependencies, typechecks the
-relayer, refreshes the systemd/Caddy configuration, and restarts the service.
-A failed install or typecheck leaves the currently running process untouched.
+relayer, builds the web app, refreshes the systemd/Caddy configuration, and
+restarts the service. A failed install, typecheck, or web build leaves the
+currently running relayer process untouched.
 
 ```bash
 systemctl status accountabilibuddy-relayer accountabilibuddy-update.timer caddy

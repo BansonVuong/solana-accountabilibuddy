@@ -41,6 +41,8 @@ runuser -u accountabilibuddy -- git fetch origin main
 runuser -u accountabilibuddy -- git merge --ff-only origin/main
 runuser -u accountabilibuddy -- npm ci
 runuser -u accountabilibuddy -- npm run relayer:deploy-check
+runuser -u accountabilibuddy -- npm --prefix app ci
+runuser -u accountabilibuddy -- npm --prefix app run build
 
 install -d -m 750 -o root -g accountabilibuddy "$env_dir"
 if [[ ! -f "$env_dir/relayer.env" ]]; then
