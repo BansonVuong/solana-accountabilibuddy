@@ -2,13 +2,10 @@ import { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
   Send, Paperclip, Hash, Zap, Shield, Clock,
-  CheckCircle2, Users, AlertTriangle, ChevronRight, Smile
+  CheckCircle2, Users, AlertTriangle, ChevronRight, Smile, Plus
 } from "lucide-react";
-import { Avatar, Pill, Card, Mono, Divider } from "./ui";
-import {
-  getGroups, getBets, getMessages, postMessage,
-  type Group as ApiGroup, type Bet as ApiBet, type ChatMessage,
-} from "../../lib/relayer";
+import { Avatar, Pill, Mono } from "./ui";
+import { SendBetModal, type NewBet } from "./SendBetModal";
 
 /* ── Data ──────────────────────────────────────────────── */
 const GROUPS = [
@@ -16,6 +13,13 @@ const GROUPS = [
   { id: "2", name: "Grind Season",   initials: "GS", members: 5,  pendingBet: false, lastMsg: "Who's running tomorrow AM?",        time: "1:04 PM"  },
   { id: "3", name: "Ship It Gang",   initials: "SI", members: 12, pendingBet: true,  lastMsg: "New DevBet awaiting votes",          time: "11:42 AM" },
   { id: "4", name: "Alpha Cadre",    initials: "AC", members: 3,  pendingBet: false, lastMsg: "Nice streak, Matt! 🏆",              time: "Yesterday"},
+];
+
+const GROUP_MEMBERS = [
+  { name: "Kevin",  initials: "KV" },
+  { name: "Matt",   initials: "MT" },
+  { name: "Jordan", initials: "JD" },
+  { name: "Sarah",  initials: "SR" },
 ];
 
 type BetStatus = "PENDING" | "ACTIVE" | "RESOLVED";
@@ -62,7 +66,7 @@ interface Msg {
   ts: string;
 }
 
-const MESSAGES: Msg[] = [
+const INITIAL_MESSAGES: Msg[] = [
   { id:"m1", sender:"Kevin",  initials:"KV", text:"Alright, I'm feeling extremely bold today. Someone get in the ring with me.", system:false, ts:"2:10 PM" },
   { id:"m2", sender:"Matt",   initials:"MT", text:"Oh yeah? What's the move 👀",                                                  system:false, ts:"2:11 PM" },
   { id:"m3", sender:"System", initials:"SY", bet:BETS[0],                                                                        system:true,  ts:"2:14 PM" },
@@ -200,15 +204,30 @@ function Message({ msg }: { msg: Msg }) {
     );
   }
 
+  const isMe = msg.sender === "Me";
+
   return (
-    <div className="flex items-start gap-2.5">
+    <div className={`flex items-start gap-2.5 ${isMe ? "flex-row-reverse" : ""}`}>
       <Avatar initials={msg.initials} size={32} />
-      <div className="flex-1 min-w-0">
-        <div className="flex items-baseline gap-2 mb-0.5">
+      <div className={`flex-1 min-w-0 ${isMe ? "flex flex-col items-end" : ""}`}>
+        <div className={`flex items-baseline gap-2 mb-0.5 ${isMe ? "flex-row-reverse" : ""}`}>
           <span className="text-foreground" style={{ fontSize: "13px", fontWeight: 600 }}>{msg.sender}</span>
           <Mono className="text-muted-foreground" style={{ fontSize: "10px" } as React.CSSProperties}>{msg.ts}</Mono>
         </div>
-        <p className="text-foreground/85 leading-relaxed" style={{ fontSize: "14px" }}>{msg.text}</p>
+        <p
+          className="leading-relaxed"
+          style={{
+            fontSize: "14px",
+            color: isMe ? "#fff" : "var(--foreground)",
+            opacity: isMe ? undefined : 0.85,
+            background: isMe ? "linear-gradient(135deg, #9945FF, #7B35FF)" : undefined,
+            padding: isMe ? "8px 14px" : undefined,
+            borderRadius: isMe ? "16px 16px 4px 16px" : undefined,
+            display: isMe ? "inline-block" : "block",
+          }}
+        >
+          {msg.text}
+        </p>
       </div>
     </div>
   );
@@ -217,206 +236,231 @@ function Message({ msg }: { msg: Msg }) {
 /* ── Main view ─────────────────────────────────────────── */
 export function ChatView() {
   const [activeGroup, setActiveGroup] = useState("1");
-  const [input, setInput] = useState("");
+  const [input,       setInput]       = useState("");
+  const [messages,    setMessages]    = useState<Msg[]>(INITIAL_MESSAGES);
+  const [betModalOpen, setBetModalOpen] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
 
-  // Live from the relayer (Mongo-backed) when available; design fixtures otherwise.
-  const [groups, setGroups] = useState<(typeof GROUPS[number] | ApiGroup)[]>(GROUPS);
-  const [bets, setBets] = useState<Bet[]>(BETS);
-  const [messages, setMessages] = useState<Msg[]>(MESSAGES);
-  const [live, setLive] = useState(false);
-
-  /* Build the embedded-bet lookup so system messages can resolve their bet. */
-  const betsById = Object.fromEntries(bets.map(b => [b.id, b])) as Record<string, Bet>;
-
-  /* Map a relayer message doc into the local Msg shape (resolving betId → bet). */
-  function toMsg(m: ChatMessage): Msg {
-    return {
-      id: m.id, sender: m.sender, initials: m.initials,
-      text: m.text, bet: m.betId ? betsById[m.betId] : undefined,
-      system: m.system, ts: m.ts,
-    };
-  }
-
-  /* Load groups + bets once; fall back to fixtures on any failure. */
-  useEffect(() => {
-    let alive = true;
-    Promise.all([getGroups(), getBets()])
-      .then(([g, b]) => {
-        if (!alive) return;
-        if (b.bets.length) setBets(b.bets as Bet[]);
-        if (g.groups.length) { setGroups(g.groups); setLive(true); }
-      })
-      .catch(() => { /* relayer offline or DB unconfigured — keep fixtures */ });
-    return () => { alive = false; };
-  }, []);
-
-  /* Load messages for the active group (only when running live). */
-  useEffect(() => {
-    if (!live) return;
-    let alive = true;
-    getMessages(activeGroup)
-      .then(({ messages }) => { if (alive) setMessages(messages.map(toMsg)); })
-      .catch(() => { /* keep whatever is shown */ });
-    return () => { alive = false; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeGroup, live]);
+  const activeGroupData = GROUPS.find(g => g.id === activeGroup)!;
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  async function send() {
-    const text = input.trim();
-    if (!text) return;
-    setInput("");
-    const optimistic: Msg = {
-      id: `local-${Date.now()}`, sender: "Me", initials: "ME",
-      text, system: false,
-      ts: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+  function sendMessage() {
+    if (!input.trim()) return;
+    const msg: Msg = {
+      id:       `m${Date.now()}`,
+      sender:   "Me",
+      initials: "ME",
+      text:     input.trim(),
+      system:   false,
+      ts:       new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
     };
-    setMessages(prev => [...prev, optimistic]);
-    if (!live) return; // demo mode — keep it local only
-    try {
-      const { message } = await postMessage({ groupId: activeGroup, sender: "Me", initials: "ME", text });
-      setMessages(prev => prev.map(m => (m.id === optimistic.id ? toMsg(message) : m)));
-    } catch {
-      /* leave the optimistic message in place */
-    }
+    setMessages(m => [...m, msg]);
+    setInput("");
+  }
+
+  function handleBetSend(bet: NewBet) {
+    const newBet: Bet = {
+      id:         `bet-${Date.now()}`,
+      type:       bet.type,
+      challenger: "Me",
+      acceptor:   bet.acceptor,
+      terms:      bet.terms,
+      stake:      bet.stake,
+      currency:   bet.currency,
+      status:     "PENDING",
+      witnesses:  0,
+      minBettors: 2,
+      groupSize:  activeGroupData.members,
+    };
+    const systemMsg: Msg = {
+      id:       `m${Date.now()}`,
+      sender:   "System",
+      initials: "SY",
+      bet:      newBet,
+      system:   true,
+      ts:       new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+    };
+    // brief "you posted" text first
+    const myMsg: Msg = {
+      id:       `m${Date.now() - 1}`,
+      sender:   "Me",
+      initials: "ME",
+      text:     `Just dropped a ${bet.type === "DEV" ? "Dev" : "Personal"} Bet — ${bet.acceptor ? `@${bet.acceptor}, ` : ""}you up for it? 👀`,
+      system:   false,
+      ts:       new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+    };
+    setMessages(m => [...m, myMsg, systemMsg]);
   }
 
   return (
-    <div className="flex h-full rounded-2xl border border-border overflow-hidden" style={{ background: "var(--card)" }}>
+    <>
+      <div className="flex h-full rounded-2xl border border-border overflow-hidden" style={{ background: "var(--card)" }}>
 
-      {/* ── Left sidebar ─────────────────────────────── */}
-      <div className="w-60 flex flex-col shrink-0 border-r border-border" style={{ background: "var(--muted)" }}>
+        {/* ── Left sidebar ─────────────────────────────── */}
+        <div className="w-60 flex flex-col shrink-0 border-r border-border" style={{ background: "var(--muted)" }}>
 
-        <div className="px-4 py-3 border-b border-border">
-          <Mono className="text-muted-foreground uppercase" style={{ fontSize: "9px", letterSpacing: "0.1em" } as React.CSSProperties}>
-            Group Chats
-          </Mono>
-        </div>
+          <div className="px-4 py-3 border-b border-border">
+            <Mono className="text-muted-foreground uppercase" style={{ fontSize: "9px", letterSpacing: "0.1em" } as React.CSSProperties}>
+              Group Chats
+            </Mono>
+          </div>
 
-        <div className="flex-1 overflow-y-auto py-1.5 space-y-0.5 px-1.5">
-          {groups.map((g) => (
+          <div className="flex-1 overflow-y-auto py-1.5 space-y-0.5 px-1.5">
+            {GROUPS.map((g) => (
+              <button
+                key={g.id}
+                onClick={() => setActiveGroup(g.id)}
+                className={`w-full flex items-center gap-2.5 px-2.5 py-2.5 rounded-xl text-left transition-all duration-150 ${
+                  activeGroup === g.id
+                    ? "bg-primary/10"
+                    : "hover:bg-card"
+                }`}
+              >
+                <div className="relative shrink-0">
+                  <Avatar initials={g.initials} size={34} />
+                  {g.pendingBet && (
+                    <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-card"
+                      style={{ background: "#FFB800" }} />
+                  )}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center justify-between gap-1">
+                    <span
+                      className={`truncate ${activeGroup === g.id ? "text-primary" : "text-foreground"}`}
+                      style={{ fontSize: "12px", fontWeight: 600 }}
+                    >
+                      {g.name}
+                    </span>
+                    <Mono className="text-muted-foreground shrink-0" style={{ fontSize: "9px" } as React.CSSProperties}>
+                      {g.time}
+                    </Mono>
+                  </div>
+                  <div className="flex items-center gap-1 mt-0.5">
+                    <Users size={9} className="text-muted-foreground shrink-0" />
+                    <span className="text-muted-foreground truncate" style={{ fontSize: "11px" }}>
+                      {g.members} · {g.lastMsg}
+                    </span>
+                  </div>
+                </div>
+              </button>
+            ))}
+          </div>
+
+          <div className="p-2 border-t border-border">
             <button
-              key={g.id}
-              onClick={() => setActiveGroup(g.id)}
-              className={`w-full flex items-center gap-2.5 px-2.5 py-2.5 rounded-xl text-left transition-all duration-150 ${
-                activeGroup === g.id
-                  ? "bg-primary/10"
-                  : "hover:bg-card"
-              }`}
+              className="w-full flex items-center justify-center gap-1.5 py-2 rounded-xl border border-dashed border-border
+                text-muted-foreground hover:text-primary hover:border-primary/30 transition-colors"
+              style={{ fontSize: "11px" }}
             >
-              <div className="relative shrink-0">
-                <Avatar initials={g.initials} size={34} />
-                {g.pendingBet && (
-                  <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-card"
-                    style={{ background: "#FFB800" }} />
-                )}
-              </div>
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center justify-between gap-1">
-                  <span
-                    className={`truncate ${activeGroup === g.id ? "text-primary" : "text-foreground"}`}
-                    style={{ fontSize: "12px", fontWeight: 600 }}
-                  >
-                    {g.name}
-                  </span>
-                  <Mono className="text-muted-foreground shrink-0" style={{ fontSize: "9px" } as React.CSSProperties}>
-                    {g.time}
-                  </Mono>
-                </div>
-                <div className="flex items-center gap-1 mt-0.5">
-                  <Users size={9} className="text-muted-foreground shrink-0" />
-                  <span className="text-muted-foreground truncate" style={{ fontSize: "11px" }}>
-                    {g.members} · {g.lastMsg}
-                  </span>
-                </div>
-              </div>
+              <Hash size={11} /> New Group
             </button>
-          ))}
+          </div>
         </div>
 
-        <div className="p-2 border-t border-border">
-          <button
-            className="w-full flex items-center justify-center gap-1.5 py-2 rounded-xl border border-dashed border-border
-              text-muted-foreground hover:text-primary hover:border-primary/30 transition-colors"
-            style={{ fontSize: "11px" }}
-          >
-            <Hash size={11} /> New Group
-          </button>
-        </div>
-      </div>
+        {/* ── Main chat panel ──────────────────────────── */}
+        <div className="flex-1 flex flex-col min-w-0">
 
-      {/* ── Main chat panel ──────────────────────────── */}
-      <div className="flex-1 flex flex-col min-w-0">
+          {/* Header */}
+          <div className="flex items-center justify-between px-5 py-3 border-b border-border shrink-0">
+            <div className="flex items-center gap-3">
+              <Avatar initials={activeGroupData.initials} size={36} />
+              <div>
+                <p className="text-foreground" style={{ fontSize: "14px", fontWeight: 700 }}>
+                  {activeGroupData.name}
+                </p>
+                <p className="flex items-center gap-1.5 text-muted-foreground" style={{ fontSize: "11px" }}>
+                  <span className="w-1.5 h-1.5 rounded-full inline-block" style={{ background: "#14F195" }} />
+                  {activeGroupData.members} members · 3 online now
+                </p>
+              </div>
+            </div>
+            <Pill color="amber">
+              <AlertTriangle size={8} />
+              1 BET PENDING RESOLUTION
+            </Pill>
+          </div>
 
-        {/* Header */}
-        <div className="flex items-center justify-between px-5 py-3 border-b border-border shrink-0">
-          <div className="flex items-center gap-3">
-            <Avatar initials={groups.find(g => g.id === activeGroup)?.initials ?? "DP"} size={36} />
-            <div>
-              <p className="text-foreground" style={{ fontSize: "14px", fontWeight: 700 }}>
-                {groups.find(g => g.id === activeGroup)?.name}
-              </p>
-              <p className="flex items-center gap-1.5 text-muted-foreground" style={{ fontSize: "11px" }}>
-                <span className="w-1.5 h-1.5 rounded-full inline-block" style={{ background: "#14F195" }} />
-                {groups.find(g => g.id === activeGroup)?.members} members · {live ? "live" : "demo"}
-              </p>
+          {/* Feed */}
+          <div className="flex-1 overflow-y-auto px-5 py-5 space-y-5">
+            <AnimatePresence initial={false}>
+              {messages.map((msg, i) => (
+                <motion.div
+                  key={msg.id}
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.22, delay: i < 8 ? i * 0.04 : 0 }}
+                >
+                  <Message msg={msg} />
+                </motion.div>
+              ))}
+            </AnimatePresence>
+            <div ref={bottomRef} />
+          </div>
+
+          {/* Input */}
+          <div className="px-5 py-3.5 border-t border-border shrink-0">
+            <div className="flex items-center gap-2">
+              {/* Bet button */}
+              <motion.button
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.93 }}
+                onClick={() => setBetModalOpen(true)}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl border font-semibold shrink-0 transition-all duration-150"
+                style={{
+                  fontSize:    "11px",
+                  color:       "#9945FF",
+                  borderColor: "rgba(153,69,255,0.35)",
+                  background:  "rgba(153,69,255,0.08)",
+                  fontFamily:  "'JetBrains Mono', monospace",
+                  letterSpacing: "0.04em",
+                  whiteSpace:  "nowrap",
+                }}
+              >
+                <Plus size={11} />
+                New Bet
+              </motion.button>
+
+              {/* Message bar */}
+              <div
+                className="flex-1 flex items-center gap-3 px-4 py-2.5 rounded-xl border border-border transition-all duration-150"
+                style={{ background: "var(--muted)" }}
+              >
+                <Paperclip size={14} className="text-muted-foreground shrink-0" />
+                <input
+                  value={input}
+                  onChange={e => setInput(e.target.value)}
+                  onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
+                  placeholder={`Message ${activeGroupData.name}…`}
+                  className="flex-1 bg-transparent text-foreground placeholder:text-muted-foreground outline-none min-w-0"
+                  style={{ fontSize: "13px" }}
+                />
+                <Smile size={14} className="text-muted-foreground shrink-0 cursor-pointer hover:text-foreground transition-colors" />
+                <motion.button
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.94 }}
+                  onClick={sendMessage}
+                  className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0 transition-colors"
+                  style={{ background: input.trim() ? "var(--primary)" : "var(--border)" }}
+                >
+                  <Send size={12} className={input.trim() ? "text-white" : "text-muted-foreground"} />
+                </motion.button>
+              </div>
             </div>
           </div>
-          <Pill color="amber">
-            <AlertTriangle size={8} />
-            1 BET PENDING RESOLUTION
-          </Pill>
-        </div>
-
-        {/* Feed */}
-        <div className="flex-1 overflow-y-auto px-5 py-5 space-y-5">
-          <AnimatePresence>
-            {messages.map((msg, i) => (
-              <motion.div
-                key={msg.id}
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.22, delay: i * 0.04 }}
-              >
-                <Message msg={msg} />
-              </motion.div>
-            ))}
-          </AnimatePresence>
-          <div ref={bottomRef} />
-        </div>
-
-        {/* Input */}
-        <div className="px-5 py-3.5 border-t border-border shrink-0">
-          <div
-            className="flex items-center gap-3 px-4 py-2.5 rounded-xl border border-border transition-all duration-150"
-            style={{ background: "var(--muted)" }}
-          >
-            <Paperclip size={14} className="text-muted-foreground shrink-0" />
-            <input
-              value={input}
-              onChange={e => setInput(e.target.value)}
-              onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); void send(); } }}
-              placeholder={`Message ${groups.find(g => g.id === activeGroup)?.name ?? ""}…`}
-              className="flex-1 bg-transparent text-foreground placeholder:text-muted-foreground outline-none min-w-0"
-              style={{ fontSize: "13px" }}
-            />
-            <Smile size={14} className="text-muted-foreground shrink-0 cursor-pointer hover:text-foreground transition-colors" />
-            <motion.button
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.94 }}
-              onClick={() => void send()}
-              className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0 transition-colors"
-              style={{ background: input.trim() ? "var(--primary)" : "var(--border)" }}
-            >
-              <Send size={12} className={input.trim() ? "text-white" : "text-muted-foreground"} />
-            </motion.button>
-          </div>
         </div>
       </div>
-    </div>
+
+      {/* ── Bet modal ───────────────────────────────────── */}
+      <SendBetModal
+        open={betModalOpen}
+        onClose={() => setBetModalOpen(false)}
+        onSend={handleBetSend}
+        groupName={activeGroupData.name}
+        groupMembers={GROUP_MEMBERS}
+      />
+    </>
   );
 }
