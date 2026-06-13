@@ -596,6 +596,9 @@ const server = http.createServer(async (req, res) => {
       if (!type) return json(res, 400, { error: "type must be PERSONAL or DEV" });
       const acceptor = type === "DEV" ? (acceptorInput || "anyone") : acceptorInput;
       if (!acceptor) return json(res, 400, { error: "acceptor is required" });
+      if (acceptorInput && acceptorInput.toLowerCase() === challenger.toLowerCase()) {
+        return json(res, 400, { error: "you cannot challenge yourself" });
+      }
       if (terms.length < 8) return json(res, 400, { error: "terms must be at least 8 characters" });
       const numericStake = Number(stakeInput);
       if (!stakeInput || !Number.isFinite(numericStake) || numericStake <= 0) {

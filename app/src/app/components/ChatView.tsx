@@ -332,9 +332,10 @@ export function ChatView({ currentUser }: { currentUser: AuthUser }) {
     .map((id) => betsById[id])
     .filter((bet): bet is Bet => Boolean(bet) && isBetCompleted(bet));
   const modalGroupMembers = useMemo(() => {
+    const currentUsername = currentUser.username.trim().toLowerCase();
     const normalizedMembers = (activeGroupData?.memberUsernames ?? [])
       .map((value) => value.trim())
-      .filter((value): value is string => Boolean(value));
+      .filter((value): value is string => Boolean(value) && value.toLowerCase() !== currentUsername);
     const seen = new Set<string>();
     const dedupedMembers: string[] = [];
     for (const member of normalizedMembers) {
@@ -342,13 +343,6 @@ export function ChatView({ currentUser }: { currentUser: AuthUser }) {
       if (seen.has(key)) continue;
       seen.add(key);
       dedupedMembers.push(member);
-    }
-    const currentUsername = currentUser.username.trim();
-    if (currentUsername && !seen.has(currentUsername.toLowerCase())) {
-      dedupedMembers.unshift(currentUsername);
-    }
-    if (dedupedMembers.length === 0) {
-      dedupedMembers.push(currentUser.username);
     }
     return dedupedMembers.map((name) => ({ name, initials: toInitials(name) }));
   }, [activeGroupData?.memberUsernames, currentUser.username]);

@@ -241,7 +241,7 @@ export default function App() {
                 onChange={(event) => setAuthForm((prev) => ({ ...prev, username: event.target.value }))}
                 className="w-full px-3 py-2 rounded-lg border border-border bg-transparent text-foreground outline-none mb-3"
                 style={{ fontSize: "13px" }}
-                placeholder="banson"
+                placeholder="your_username"
               />
             </>
           )}
