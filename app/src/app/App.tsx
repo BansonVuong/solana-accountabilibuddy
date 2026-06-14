@@ -170,7 +170,7 @@ export default function App() {
         setDiscordLinkStatus("error");
       });
     return () => { alive = false; };
-  }, [authUser, discordLinkCode, discordLinkStatus]);
+  }, [authUser, discordLinkCode]);
 
   /* On a successful link, briefly show the confirmation, then send the user
      straight back to Discord. */
