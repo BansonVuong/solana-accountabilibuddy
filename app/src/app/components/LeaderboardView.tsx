@@ -227,10 +227,12 @@ function WinRateTrend({ points }: { points: number[] }) {
   const width = 220;
   const height = 34;
   const pad = 3;
+  const tailWidth = 16;
   const min = Math.min(...series);
   const max = Math.max(...series);
   const range = max - min || 1;
-  const xStep = (width - pad * 2) / (series.length - 1);
+  const trendWidth = Math.max(1, width - pad * 2 - tailWidth);
+  const xStep = trendWidth / (series.length - 1);
   const baseline = height / 2;
   const toY = (value: number): number => (
     height - pad - ((value - min) / range) * (height - pad * 2)
@@ -246,7 +248,8 @@ function WinRateTrend({ points }: { points: number[] }) {
   const stroke = delta > 0 ? "#14F195" : delta < 0 ? "#FF4A4A" : "#94A3B8";
   const finalPoint = chartPoints[chartPoints.length - 1] ?? { x: width - pad, y: baseline };
   const firstPoint = chartPoints[0] ?? { x: pad, y: baseline };
-  const areaPointsAttr = `${firstPoint.x},${height - pad} ${pointsAttr} ${finalPoint.x},${height - pad}`;
+  const tailEndX = width - pad;
+  const areaPointsAttr = `${firstPoint.x},${height - pad} ${pointsAttr} ${tailEndX},${finalPoint.y} ${tailEndX},${height - pad}`;
   return (
     <svg
       viewBox={`0 0 ${width} ${height}`}
@@ -275,6 +278,15 @@ function WinRateTrend({ points }: { points: number[] }) {
         strokeLinejoin="round"
         strokeLinecap="round"
         points={pointsAttr}
+      />
+      <line
+        x1={finalPoint.x}
+        y1={finalPoint.y}
+        x2={tailEndX}
+        y2={finalPoint.y}
+        stroke={stroke}
+        strokeWidth="2.25"
+        strokeLinecap="round"
       />
       <circle cx={finalPoint.x} cy={finalPoint.y} r="2.75" fill={stroke} />
     </svg>
