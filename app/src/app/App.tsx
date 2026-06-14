@@ -938,7 +938,7 @@ export default function App() {
                 />
               )}
               {activeView === "escrow"      && <EscrowView onOpenBetChat={openBetInChat} />}
-              {activeView === "leaderboard" && <LeaderboardView />}
+              {activeView === "leaderboard" && <LeaderboardView currentUser={authUser} />}
             </motion.div>
           </AnimatePresence>
         </div>
