@@ -59,7 +59,7 @@ const SPORTSDB_TIMEOUT_MS = Number(process.env.SPORTSDB_TIMEOUT_MS ?? 12_000);
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 const DEFAULT_LEAGUE_BY_SPORT: Record<Sport, string> = {
-  soccer: "4346", // MLS
+  soccer: "4429", // FIFA World Cup
   nba: "4387",
   nfl: "4391",
   nhl: "4380",
@@ -71,6 +71,7 @@ export const SOCCER_LEAGUES: Record<string, string> = {
   epl: "4328",
   laliga: "4335",
   mls: "4346",
+  worldcup: "4429",
 };
 
 const FINAL_STATUSES = new Set([
