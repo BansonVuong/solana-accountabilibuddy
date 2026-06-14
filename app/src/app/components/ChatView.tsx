@@ -220,6 +220,26 @@ function EmbeddedBetCard({
         <p className="text-foreground leading-snug" style={{ fontSize: "15px", fontWeight: 600 }}>
           "{bet.terms}"
         </p>
+        {!isSports && (
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            <div className="rounded-lg border border-[#9945FF]/20 bg-[#9945FF]/8 px-2.5 py-2">
+              <Mono className="block text-[#9945FF]" style={{ fontSize: "9px" } as React.CSSProperties}>
+                CHALLENGER
+              </Mono>
+              <span className="text-foreground" style={{ fontSize: "12px", fontWeight: 600 }}>
+                {bet.challenger}
+              </span>
+            </div>
+            <div className="rounded-lg border border-[#14F195]/20 bg-[#14F195]/8 px-2.5 py-2">
+              <Mono className="block text-[#14F195]" style={{ fontSize: "9px" } as React.CSSProperties}>
+                RECIPIENT
+              </Mono>
+              <span className="text-foreground" style={{ fontSize: "12px", fontWeight: 600 }}>
+                {pendingAcceptorLabel}
+              </span>
+            </div>
+          </div>
+        )}
         <div className="mt-3 flex items-center gap-2.5">
           <span
             className="px-2.5 py-1 rounded-lg"

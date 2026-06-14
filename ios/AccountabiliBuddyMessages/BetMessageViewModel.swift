@@ -237,17 +237,18 @@ final class BetMessageViewModel: ObservableObject {
         }
         do {
             let resolved = try await client.resolveParticipants(remoteParticipantIds)
-            let candidates = Array(Set(resolved.map(\.username)))
+            let currentUsername = currentUser?.username ?? ""
+            let candidates = Array(Set(resolved.map(\.username).filter {
+                $0.caseInsensitiveCompare(currentUsername) != .orderedSame
+            }))
                 .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
             recipientCandidates = candidates
-            if !recipientUsername.isEmpty {
-                let selectedLower = recipientUsername.lowercased()
-                if let canonical = candidates.first(where: { $0.lowercased() == selectedLower }) {
-                    recipientUsername = canonical
-                }
-            }
+            recipientUsername = candidates.first(where: {
+                $0.caseInsensitiveCompare(recipientUsername) == .orderedSame
+            }) ?? candidates.first ?? ""
         } catch {
             recipientCandidates = []
+            recipientUsername = ""
         }
     }
 
@@ -268,20 +269,10 @@ final class BetMessageViewModel: ObservableObject {
             throw RelayerClientError.server("Stake must be a positive SOL amount.")
         }
         let selectedRecipient = recipientUsername.trimmingCharacters(in: .whitespacesAndNewlines)
-        let normalizedAcceptor: String
-        if selectedRecipient.isEmpty {
-            normalizedAcceptor = "anyone"
-        } else {
-            if selectedRecipient.caseInsensitiveCompare(currentUser?.username ?? "") == .orderedSame {
-                throw RelayerClientError.server("You cannot target yourself.")
-            }
-            if let canonical = recipientCandidates.first(where: {
-                $0.caseInsensitiveCompare(selectedRecipient) == .orderedSame
-            }) {
-                normalizedAcceptor = canonical
-            } else {
-                normalizedAcceptor = selectedRecipient
-            }
+        guard let normalizedAcceptor = recipientCandidates.first(where: {
+            $0.caseInsensitiveCompare(selectedRecipient) == .orderedSame
+        }) else {
+            throw RelayerClientError.server("Choose a resolved participant from this conversation.")
         }
 
         let normalizedTerms: String
@@ -319,7 +310,7 @@ final class BetMessageViewModel: ObservableObject {
     private func clearComposeForm() {
         terms = ""
         stake = ""
-        recipientUsername = ""
+        recipientUsername = recipientCandidates.first ?? ""
         sport = "nba"
         gameId = ""
         backsHome = true
