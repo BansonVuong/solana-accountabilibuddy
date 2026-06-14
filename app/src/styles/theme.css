@@ -65,46 +65,46 @@
 
 /* ─── Dark Mode ──────────────────────────────── */
 .dark {
-  --background:          #0B0F19;
-  --foreground:          #FFFFFF;
-  --card:                #161D30;
-  --card-foreground:     #FFFFFF;
-  --popover:             #1A2338;
-  --popover-foreground:  #FFFFFF;
+  --background:          #070B14;
+  --foreground:          #E8EEF8;
+  --card:                #0F1728;
+  --card-foreground:     #EDF2FF;
+  --popover:             #111C31;
+  --popover-foreground:  #EDF2FF;
 
-  --primary:             #9945FF;
+  --primary:             #7A5CFF;
   --primary-foreground:  #FFFFFF;
-  --secondary:           #1E2A42;
-  --secondary-foreground:#8A99AD;
-  --muted:               #131929;
-  --muted-foreground:    #8A99AD;
-  --accent:              #9945FF;
-  --accent-foreground:   #FFFFFF;
+  --secondary:           #172338;
+  --secondary-foreground:#A4B3CC;
+  --muted:               #101A2D;
+  --muted-foreground:    #9AAACC;
+  --accent:              #203054;
+  --accent-foreground:   #DCE8FF;
 
   --destructive:         #FF4A4A;
   --destructive-foreground: #FFFFFF;
 
-  --border:              #24324F;
-  --input:               #161D30;
-  --input-background:    #1E2A42;
-  --switch-background:   #43536A;
+  --border:              #22314A;
+  --input:               #0F1728;
+  --input-background:    #15233A;
+  --switch-background:   #445674;
 
-  --ring:                #9945FF;
+  --ring:                #7A5CFF;
 
-  --chart-1: #9945FF;
-  --chart-2: #14F195;
-  --chart-3: #FFB800;
-  --chart-4: #FF4A4A;
-  --chart-5: #3B82F6;
+  --chart-1: #7A5CFF;
+  --chart-2: #34D399;
+  --chart-3: #60A5FA;
+  --chart-4: #F59E0B;
+  --chart-5: #FB7185;
 
-  --sidebar:                  #0D1220;
-  --sidebar-foreground:       #FFFFFF;
-  --sidebar-primary:          #9945FF;
+  --sidebar:                  #0A1324;
+  --sidebar-foreground:       #EDF2FF;
+  --sidebar-primary:          #7A5CFF;
   --sidebar-primary-foreground:#FFFFFF;
-  --sidebar-accent:           #1E2A42;
-  --sidebar-accent-foreground:#8A99AD;
-  --sidebar-border:           #24324F;
-  --sidebar-ring:             #9945FF;
+  --sidebar-accent:           #1A2942;
+  --sidebar-accent-foreground:#A4B3CC;
+  --sidebar-border:           #22314A;
+  --sidebar-ring:             #7A5CFF;
 }
 
 /* ─── Tailwind theme mapping ─────────────────── */

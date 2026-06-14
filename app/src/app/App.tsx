@@ -496,7 +496,7 @@ export default function App() {
       <header
         className="h-12 border-b border-border flex items-center px-4 gap-4 shrink-0 sticky top-0 z-50"
         style={{
-          background: dark ? "rgba(11,15,25,0.85)" : "rgba(248,250,252,0.9)",
+          background: dark ? "rgba(7,11,20,0.88)" : "rgba(248,250,252,0.9)",
           backdropFilter: "blur(16px)",
           WebkitBackdropFilter: "blur(16px)",
         }}
@@ -513,7 +513,7 @@ export default function App() {
             <Zap size={13} className="text-white" />
           </div>
           <span className="text-foreground" style={{ fontSize: "13px", fontWeight: 700, letterSpacing: "-0.01em" }}>
-            AccountabiliBuddy
+            BAAM
           </span>
           <Pill color="teal" className="hidden sm:inline-flex">BETA</Pill>
         </div>
@@ -588,7 +588,7 @@ export default function App() {
                   transition={{ duration: 0.14 }}
                   className="absolute right-0 top-[calc(100%+10px)] w-80 rounded-xl border border-border p-3 z-[60]"
                   style={{
-                    background: dark ? "rgba(11,15,25,0.98)" : "rgba(255,255,255,0.98)",
+                    background: dark ? "rgba(8,13,24,0.98)" : "rgba(255,255,255,0.98)",
                     boxShadow: "0 10px 30px rgba(0,0,0,0.2)",
                     backdropFilter: "blur(12px)",
                   }}
@@ -664,7 +664,7 @@ export default function App() {
                   transition={{ duration: 0.14 }}
                   className="absolute right-0 top-[calc(100%+10px)] w-72 rounded-xl border border-border p-3 z-[60]"
                   style={{
-                    background: dark ? "rgba(11,15,25,0.98)" : "rgba(255,255,255,0.98)",
+                    background: dark ? "rgba(8,13,24,0.98)" : "rgba(255,255,255,0.98)",
                     boxShadow: "0 10px 30px rgba(0,0,0,0.2)",
                     backdropFilter: "blur(12px)",
                   }}
@@ -754,7 +754,7 @@ export default function App() {
       {/* ═══ View title strip ════════════════════════ */}
       <div
         className="px-5 py-3.5 border-b border-border shrink-0"
-        style={{ background: dark ? "rgba(22,29,48,0.6)" : "rgba(255,255,255,0.8)" }}
+        style={{ background: dark ? "rgba(14,23,40,0.62)" : "rgba(255,255,255,0.8)" }}
       >
         <div className="max-w-6xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-2 text-muted-foreground" style={{ fontSize: "12px" }}>
