@@ -158,9 +158,10 @@ export async function registerDiscordCommands(): Promise<void> {
 
 // ── bot startup ───────────────────────────────────────────────────────────────
 
-// Running client reference so non-interaction code (e.g. the web link flow
-// completing via POST /discord/link) can post messages into channels.
+// Keep the running client and pending private setup interactions alive while
+// the web link flow completes via POST /discord/link.
 let botClient: Client | null = null;
+const pendingDiscordLinks = new Map<string, ChatInputCommandInteraction>();
 
 export async function startDiscordBot(): Promise<Client | null> {
   const token = process.env.DISCORD_BOT_TOKEN;
@@ -185,24 +186,25 @@ export async function startDiscordBot(): Promise<Client | null> {
   return client;
 }
 
-// Posts a confirmation into the channel where /setup was started once the user
-// finishes linking on the web app. Best-effort: never throws.
+// Replaces the user's ephemeral /setup response once linking finishes on the
+// web app. Best-effort: never throws.
 export async function announceDiscordLink(
   payload: DiscordLinkCodePayload,
   username: string,
 ): Promise<void> {
-  if (!botClient || !payload.channelId) return;
+  if (!payload.linkAttemptId) return;
+  const interaction = pendingDiscordLinks.get(payload.linkAttemptId);
+  if (!interaction) return;
+  pendingDiscordLinks.delete(payload.linkAttemptId);
   try {
-    const channel = await botClient.channels.fetch(payload.channelId);
-    if (!channel || !channel.isTextBased() || !("send" in channel)) return;
     const embed = new EmbedBuilder()
       .setColor(Colors.Green)
       .setTitle("✅ Account linked")
       .setDescription(
-        `<@${payload.discordId}> linked **@${username}** to BAAM.\n\n` +
+        `Your Discord account is linked to **@${username}** on BAAM.\n\n` +
         "Use `/bet personal` to post a bet, `/bet sports` to bet on a game, or `/profile` to view your record.",
       );
-    await channel.send({ content: `<@${payload.discordId}>`, embeds: [embed] });
+    await interaction.editReply({ embeds: [embed], components: [] });
   } catch (err) {
     console.warn("Failed to announce Discord link:", err instanceof Error ? err.message : err);
   }
@@ -278,11 +280,16 @@ async function handleSetupCommand(interaction: ChatInputCommandInteraction): Pro
 function buildLinkButtonRow(
   interaction: ChatInputCommandInteraction,
 ): ActionRowBuilder<ButtonBuilder> {
+  const linkAttemptId = crypto.randomUUID();
+  pendingDiscordLinks.set(linkAttemptId, interaction);
+  const cleanupTimer = setTimeout(() => pendingDiscordLinks.delete(linkAttemptId), LINK_CODE_TTL_MS);
+  cleanupTimer.unref();
   const code = signDiscordLinkCode({
     discordId: interaction.user.id,
     discordUsername: interaction.user.username,
     guildId: interaction.guildId,
     channelId: interaction.channelId,
+    linkAttemptId,
   });
   const url = `${WEB_BASE_URL}/?discord_link=${encodeURIComponent(code)}`;
   return new ActionRowBuilder<ButtonBuilder>().addComponents(
@@ -915,6 +922,7 @@ async function handleBetCreateModal(interaction: ModalSubmitInteraction): Promis
   const now = Date.now();
   const betDoc: BetDoc = {
     id: `bet-${now}-${crypto.randomBytes(3).toString("hex")}`,
+    createdAt: now,
     source: "discord",
     discordConversationId: conv.id,
     type: "PERSONAL",
@@ -1352,6 +1360,7 @@ export interface DiscordLinkCodePayload {
   discordUsername: string;
   guildId: string | null;
   channelId: string | null;
+  linkAttemptId?: string;
   exp: number;
 }
 
@@ -1360,12 +1369,14 @@ export function signDiscordLinkCode(input: {
   discordUsername: string;
   guildId?: string | null;
   channelId?: string | null;
+  linkAttemptId?: string;
 }): string {
   const payload: DiscordLinkCodePayload = {
     discordId: input.discordId,
     discordUsername: input.discordUsername,
     guildId: input.guildId ?? null,
     channelId: input.channelId ?? null,
+    linkAttemptId: input.linkAttemptId,
     exp: Date.now() + LINK_CODE_TTL_MS,
   };
   const encoded = Buffer.from(JSON.stringify(payload)).toString("base64url");

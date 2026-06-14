@@ -10,9 +10,13 @@ struct BetMessageRootView: View {
                 if viewModel.isSignedIn {
                     accountCard
                     selectedBetCard
-                    conversationCard
-                    if viewModel.conversation != nil {
-                        composeCard
+                    // When a bet card is open, focus on just that card and hide the
+                    // conversation setup + compose sections.
+                    if viewModel.selectedCard == nil {
+                        conversationCard
+                        if viewModel.conversation != nil {
+                            composeCard
+                        }
                     }
                 } else {
                     authenticationCard
@@ -437,9 +441,19 @@ struct BetMessageRootView: View {
                             .font(.headline)
                     }
                     Spacer()
-                    Text("#\(card.betId)")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
+                    VStack(alignment: .trailing, spacing: 4) {
+                        Button {
+                            viewModel.selectedCard = nil
+                            viewModel.selectedBetId = nil
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.borderless)
+                        Text("#\(card.betId)")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
                 }
 
                 Text(card.terms)
@@ -480,7 +494,11 @@ struct BetMessageRootView: View {
                     .buttonStyle(.bordered)
 
                     Button("Accept") {
-                        Task { await viewModel.acceptSelectedBet() }
+                        Task {
+                            await viewModel.acceptSelectedBet { draft in
+                                onSendDraft(draft)
+                            }
+                        }
                     }
                     .buttonStyle(.borderedProminent)
                     .disabled(!card.actions.canAccept || viewModel.isBusy)
@@ -550,7 +568,11 @@ struct BetMessageRootView: View {
     ) -> some View {
         let isMyVote = card.votes.myVote == choice
         return Button {
-            Task { await viewModel.voteSelectedBet(choice) }
+            Task {
+                await viewModel.voteSelectedBet(choice) { draft in
+                    onSendDraft(draft)
+                }
+            }
         } label: {
             VStack(alignment: .leading, spacing: 2) {
                 Text("@\(username)")

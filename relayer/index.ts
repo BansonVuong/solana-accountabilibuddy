@@ -29,7 +29,7 @@ import { AnchorProvider, BN, Program, Wallet, web3 } from "@anchor-lang/core";
 
 import { fetchGameResult, fetchScoreboard, type Sport } from "./scraper";
 import {
-  isDbConfigured, groups, messages, bets, players, profiles, users, imessageConversations, discordConversations, type GroupDoc, type MessageDoc, type ProfileDoc, type UserDoc, type BetDoc, type IMessageConversationDoc, type DiscordConversationDoc,
+  isDbConfigured, groups, messages, bets, players, profiles, users, imessageConversations, discordConversations, type GroupDoc, type MessageDoc, type ProfileDoc, type PlayerDoc, type UserDoc, type BetDoc, type IMessageConversationDoc, type DiscordConversationDoc,
 } from "./db";
 import { startDiscordBot, verifyDiscordLinkCode, announceDiscordLink } from "./discord";
 import idl from "./generated/accountability.json";
@@ -338,6 +338,95 @@ function normalizeBetDoc(doc: BetDoc): BetDoc {
 
 function isBetCompletedStatus(status: BetDoc["status"]): boolean {
   return normalizeBetStatus(status) === "COMPLETED";
+}
+
+function inferBetCreatedAt(doc: BetDoc): number {
+  if (typeof doc.createdAt === "number" && Number.isFinite(doc.createdAt)) return doc.createdAt;
+  const match = /^bet-(\d+)-/.exec(doc.id);
+  const parsed = match?.[1] ? Number(match[1]) : 0;
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function buildLeaderboardPlayers(
+  userDocs: UserDoc[],
+  profileDocs: ProfileDoc[],
+  legacyPlayers: PlayerDoc[],
+  betDocs: BetDoc[],
+): PlayerDoc[] {
+  type MutablePlayer = PlayerDoc & { outcomes: Array<{ won: boolean; at: number }> };
+  const byUsername = new Map<string, MutablePlayer>();
+  const profileByHandle = new Map(profileDocs.map((profile) => [profile.github.toLowerCase(), profile]));
+  const legacyByHandle = new Map(legacyPlayers.map((player) => [player.github.toLowerCase(), player]));
+
+  const ensurePlayer = (username: string): MutablePlayer | null => {
+    const key = username.trim().replace(/^@/, "").toLowerCase();
+    if (!key || key === "anyone") return null;
+    const existing = byUsername.get(key);
+    if (existing) return existing;
+    const profile = profileByHandle.get(key);
+    const legacy = legacyByHandle.get(key);
+    const created: MutablePlayer = {
+      rank: 0,
+      name: profile?.name ?? legacy?.name ?? username,
+      initials: profile?.initials ?? legacy?.initials ?? toInitials(username),
+      github: profile?.github ?? legacy?.github ?? username,
+      sol: profile?.sol ?? legacy?.sol ?? 0,
+      solDelta: legacy?.solDelta ?? 0,
+      wins: 0,
+      disputes: 0,
+      streak: 0,
+      streakDir: "neutral",
+      betCount: 0,
+      completionRate: 0,
+      outcomes: [],
+    };
+    byUsername.set(key, created);
+    return created;
+  };
+
+  for (const user of userDocs) ensurePlayer(user.username);
+  for (const profile of profileDocs) ensurePlayer(profile.github);
+  for (const player of legacyPlayers) ensurePlayer(player.github);
+
+  for (const raw of betDocs) {
+    const bet = normalizeBetDoc(raw);
+    const challenger = ensurePlayer(bet.challenger);
+    const acceptorName = bet.acceptedBy ?? bet.opponentUsername ?? bet.acceptor;
+    const acceptor = ensurePlayer(acceptorName);
+    if (challenger) challenger.betCount = (challenger.betCount ?? 0) + 1;
+    if (acceptor) acceptor.betCount = (acceptor.betCount ?? 0) + 1;
+
+    const winner = getBetResolvedWinner(bet);
+    if (!winner || !isBetCompletedStatus(bet.status) || !challenger || !acceptor) continue;
+    const at = inferBetCreatedAt(bet);
+    const winnerPlayer = winner === "challenger" ? challenger : acceptor;
+    const loserPlayer = winner === "challenger" ? acceptor : challenger;
+    winnerPlayer.wins += 1;
+    winnerPlayer.disputes += 1;
+    loserPlayer.disputes += 1;
+    winnerPlayer.outcomes.push({ won: true, at });
+    loserPlayer.outcomes.push({ won: false, at });
+  }
+
+  const ranked = [...byUsername.values()].map(({ outcomes, ...player }) => {
+    const ordered = [...outcomes].sort((a, b) => b.at - a.at);
+    const latest = ordered[0]?.won;
+    let streak = 0;
+    for (const outcome of ordered) {
+      if (outcome.won !== latest) break;
+      streak += 1;
+    }
+    return {
+      ...player,
+      streak,
+      streakDir: latest === undefined ? "neutral" as const : latest ? "up" as const : "down" as const,
+      completionRate: player.betCount
+        ? Math.round((player.disputes / player.betCount) * 100)
+        : 0,
+    };
+  }).sort((a, b) => b.sol - a.sol || b.wins - a.wins || a.name.localeCompare(b.name));
+
+  return ranked.map((player, index) => ({ ...player, rank: index + 1 }));
 }
 
 function countBetVotes(votesByVoter: Record<string, BetVoteChoice>): {
@@ -1330,7 +1419,7 @@ const server = http.createServer(async (req, res) => {
       if (!isIMessage && !isDiscord && !groupId) return json(res, 400, { error: "groupId is required" });
       if (!type) return json(res, 400, { error: "type must be PERSONAL or DEV" });
       if (type === "DEV" && !isSports) {
-        return json(res, 400, { error: "DEV bets are sports bets now; include sport and gameId" });
+        return json(res, 400, { error: "Sports bets must include sport and gameId" });
       }
       const acceptorIsOpen = !acceptorInput || acceptorInput.toLowerCase() === "anyone";
       let acceptor = acceptorIsOpen ? "anyone" : acceptorInput;
@@ -1512,6 +1601,7 @@ const server = http.createServer(async (req, res) => {
 
       const betDoc: BetDoc = {
         id: `bet-${now}-${crypto.randomBytes(3).toString("hex")}`,
+        createdAt: now,
         ...(isIMessage ? { source: "imessage" as const } : isDiscord ? { source: "discord" as const } : { groupId }),
         ...(isIMessage ? { imessageConversationId } : {}),
         ...(isDiscord ? { discordConversationId } : {}),
@@ -1617,7 +1707,7 @@ const server = http.createServer(async (req, res) => {
         {
           $set: {
             pendingBet: true,
-            lastMsg: `${challenger} posted a new ${isSports ? "sports" : type === "DEV" ? "dev" : "personal"} bet`,
+            lastMsg: `${challenger} posted a new ${isSports || type === "DEV" ? "sports" : "personal"} bet`,
             time: ts,
             updatedAt: now,
           },
@@ -1801,9 +1891,16 @@ const server = http.createServer(async (req, res) => {
           { id: { $in: legacyBetIds } },
         ] : []),
       ];
+      const usernameFilters = [
+        { challenger: authUser.username },
+        { acceptor: authUser.username },
+        { acceptedBy: authUser.username },
+        { opponentUsername: authUser.username },
+      ];
       const docs = await betsCol.find({
         $or: [
           ...membershipFilters,
+          ...usernameFilters,
           {
             status: "ACTIVE",
             validation: { $ne: "sports" },
@@ -1902,15 +1999,25 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, { bet: normalizeBetDoc(updated) });
     }
 
-    // GET /leaderboard  — players ranked by SOL balance
+    // GET /leaderboard  — Mongo users ranked by SOL balance with stats derived
+    // from every persisted bet, including Discord and iMessage bets.
     if (req.method === "GET" && req.url === "/leaderboard") {
-      const col = await players();
-      if (!col) return dbUnconfigured(res);
-      const docs = await col
-        .find({}, { projection: { _id: 0 } })
-        .sort({ sol: -1 })
-        .toArray();
-      return json(res, 200, { players: docs });
+      const [usersCol, betsCol, profilesCol, playersCol] = await Promise.all([
+        users(),
+        bets(),
+        profiles(),
+        players(),
+      ]);
+      if (!usersCol || !betsCol || !profilesCol || !playersCol) return dbUnconfigured(res);
+      const [userDocs, betDocs, profileDocs, legacyPlayers] = await Promise.all([
+        usersCol.find({}, { projection: { _id: 0 } }).toArray(),
+        betsCol.find({}, { projection: { _id: 0 } }).toArray(),
+        profilesCol.find({}, { projection: { _id: 0 } }).toArray(),
+        playersCol.find({}, { projection: { _id: 0 } }).toArray(),
+      ]);
+      return json(res, 200, {
+        players: buildLeaderboardPlayers(userDocs, profileDocs, legacyPlayers, betDocs),
+      });
     }
 
     // GET /profiles  — all profile records

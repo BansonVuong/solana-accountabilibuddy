@@ -276,6 +276,7 @@ export type BetVoteChoice = "challenger" | "acceptor";
 
 export interface Bet {
   id: string;
+  createdAt?: number;
   source?: "imessage" | "discord";
   groupId?: string;
   type: "PERSONAL" | "DEV";

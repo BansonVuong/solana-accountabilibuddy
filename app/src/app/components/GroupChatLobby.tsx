@@ -113,7 +113,7 @@ function BetTypeTag({ type }: { type: "PERSONAL" | "DEV" }) {
         : "bg-[#9945FF]/10 text-[#9945FF] border border-[#9945FF]/20"
     }`} style={{ fontFamily: "'JetBrains Mono', monospace" }}>
       {type === "DEV" ? <Zap size={9} /> : <Shield size={9} />}
-      BET TYPE: {type}
+      BET TYPE: {type === "DEV" ? "SPORTS" : type}
     </span>
   );
 }

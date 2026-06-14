@@ -140,7 +140,7 @@ function StatusTag({ status }: { status: Bet["status"] }) {
 function BetTypeTag({ bet }: { bet: Bet }) {
   const isSports = bet.validation === "sports";
   const showDevPalette = isSports || bet.type === "DEV";
-  const label = isSports ? "SPORTS" : bet.type;
+  const label = showDevPalette ? "SPORTS" : bet.type;
   return (
     <Pill color={showDevPalette ? "teal" : "purple"}>
       {showDevPalette ? <Zap size={8} /> : <Shield size={8} />}

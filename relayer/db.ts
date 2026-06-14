@@ -48,6 +48,8 @@ export interface MessageDoc {
 
 export interface BetDoc {
   id: string;
+  /** Unix ms when the bet was created. Older records can infer this from id. */
+  createdAt?: number;
   /** Surface that created the bet. iMessage bets use the Messages conversation instead of a dashboard group. */
   source?: "imessage" | "discord";
   /** AccountabiliBuddy-managed Messages conversation used for invite membership. */
@@ -285,6 +287,7 @@ async function ensureIndexes(db: Db): Promise<void> {
   await db.collection("imessageConversations").createIndex({ memberUserIds: 1 });
   await db.collection("users").createIndex({ discordId: 1 }, { unique: true, sparse: true });
   await db.collection("bets").createIndex({ discordConversationId: 1 });
+  await db.collection("bets").createIndex({ source: 1, status: 1 });
   await db.collection("discordConversations").createIndex({ id: 1 }, { unique: true });
   await db.collection("discordConversations").createIndex({ channelId: 1 }, { unique: true });
   await db.collection("discordConversations").createIndex({ memberUserIds: 1 });

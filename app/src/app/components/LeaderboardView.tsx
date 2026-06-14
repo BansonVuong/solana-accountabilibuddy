@@ -138,6 +138,9 @@ function formatSignedStakeAmount(value: number, currency: string): string {
 }
 
 function inferBetTimestampMs(bet: Bet): number {
+  if (typeof bet.createdAt === "number" && Number.isFinite(bet.createdAt)) {
+    return bet.createdAt;
+  }
   if (typeof bet.acceptedAt === "number" && Number.isFinite(bet.acceptedAt)) {
     return bet.acceptedAt;
   }
@@ -207,11 +210,29 @@ function Delta({ value, unit }: { value: number; unit: string }) {
 function BetMetricsCell({
   stats,
   currency,
+  fallbackWins,
+  fallbackResolved,
 }: {
   stats: BetPerformance | null;
   currency: string;
+  fallbackWins: number;
+  fallbackResolved: number;
 }) {
   if (!stats || stats.resolved === 0) {
+    if (fallbackResolved > 0) {
+      const losses = Math.max(0, fallbackResolved - fallbackWins);
+      const winRate = Math.round((fallbackWins / fallbackResolved) * 100);
+      return (
+        <div className="space-y-0.5">
+          <Mono className="text-foreground block" style={{ fontSize: "10px" } as React.CSSProperties}>
+            {fallbackWins}W-{losses}L · {winRate}%
+          </Mono>
+          <Mono className="text-muted-foreground block" style={{ fontSize: "10px" } as React.CSSProperties}>
+            Mongo bet history
+          </Mono>
+        </div>
+      );
+    }
     return (
       <div className="space-y-0.5">
         <Mono className="text-muted-foreground block" style={{ fontSize: "10px" } as React.CSSProperties}>
@@ -311,6 +332,8 @@ function WinRateTrend({ points }: { points: number[] }) {
 }
 
 /* ── Main view ─────────────────────────────────────────── */
+const ALL_BETS_GROUP_ID = "__all_bets__";
+
 export function LeaderboardView({ currentUser = null }: { currentUser?: AuthUser | null }) {
   const [groups, setGroups] = useState<Group[]>([]);
   const [activeGroupId, setActiveGroupId] = useState("");
@@ -326,15 +349,23 @@ export function LeaderboardView({ currentUser = null }: { currentUser?: AuthUser
     let alive = true;
 
     const load = async (): Promise<void> => {
-      const [groupsResult, profilesResult, betsResult] = await Promise.allSettled([
+      const [groupsResult, leaderboardResult, betsResult] = await Promise.allSettled([
         getGroups(),
-        getProfiles(),
+        getLeaderboard(),
         getBets(),
       ]);
       if (!alive) return;
 
       if (groupsResult.status === "fulfilled") {
-        const nextGroups = groupsResult.value.groups;
+        const nextGroups = [{
+          id: ALL_BETS_GROUP_ID,
+          name: "All bets",
+          initials: "AB",
+          members: 0,
+          pendingBet: false,
+          lastMsg: "Discord, iMessage, and web bets",
+          time: "",
+        }, ...groupsResult.value.groups];
         setGroups(nextGroups);
         setGroupsLive(true);
         setActiveGroupId((currentId) => (
@@ -354,22 +385,22 @@ export function LeaderboardView({ currentUser = null }: { currentUser?: AuthUser
         setBets([]);
       }
 
-      if (profilesResult.status === "fulfilled" && profilesResult.value.profiles.length) {
-        const mapped = [...profilesResult.value.profiles]
+      if (leaderboardResult.status === "fulfilled" && leaderboardResult.value.players.length) {
+        const mapped = [...leaderboardResult.value.players]
           .sort((a, b) => b.sol - a.sol)
-          .map((profile, index) => fromProfile(profile, index + 1));
+          .map((player, index) => fromRelayerPlayer(player, index + 1));
         setPlayers(mapped);
         setPlayersLive(true);
         return;
       }
 
       try {
-        const { players: relayerPlayers } = await getLeaderboard();
+        const { profiles } = await getProfiles();
         if (!alive) return;
-        if (relayerPlayers.length) {
-          const mapped = [...relayerPlayers]
+        if (profiles.length) {
+          const mapped = [...profiles]
             .sort((a, b) => b.sol - a.sol)
-            .map((player, index) => fromRelayerPlayer(player, index + 1));
+            .map((profile, index) => fromProfile(profile, index + 1));
           setPlayers(mapped);
           setPlayersLive(true);
         } else {
@@ -397,7 +428,7 @@ export function LeaderboardView({ currentUser = null }: { currentUser?: AuthUser
   useEffect(() => {
     let alive = true;
 
-    if (!activeGroupId) {
+    if (!activeGroupId || activeGroupId === ALL_BETS_GROUP_ID) {
       setHistoryMessages([]);
       setHistoryLive(false);
       return () => {
@@ -433,6 +464,7 @@ export function LeaderboardView({ currentUser = null }: { currentUser?: AuthUser
     () => groups.find((group) => group.id === activeGroupId) ?? null,
     [activeGroupId, groups],
   );
+  const showingAllBets = activeGroupId === ALL_BETS_GROUP_ID;
   const currentUsername = currentUser?.username ?? "";
 
   const hasMembershipRoster = useMemo(
@@ -458,6 +490,7 @@ export function LeaderboardView({ currentUser = null }: { currentUser?: AuthUser
 
   const groupPlayers = useMemo(() => {
     if (!activeGroup) return [];
+    if (showingAllBets) return players;
     const currentKey = normalizeHandle(currentUsername);
     if (!hasMembershipRoster) {
       if (!currentKey) return players;
@@ -498,7 +531,7 @@ export function LeaderboardView({ currentUser = null }: { currentUser?: AuthUser
         return fromUsername(username);
       })
       .filter((player): player is Player => Boolean(player));
-  }, [activeGroup, activeGroupMembers, currentUsername, hasMembershipRoster, players]);
+  }, [activeGroup, activeGroupMembers, currentUsername, hasMembershipRoster, players, showingAllBets]);
 
   const sorted = useMemo(
     () => [...groupPlayers].sort((a, b) => b.sol - a.sol || a.name.localeCompare(b.name)),
@@ -513,11 +546,12 @@ export function LeaderboardView({ currentUser = null }: { currentUser?: AuthUser
   );
 
   const historyBets = useMemo(() => {
+    if (showingAllBets) return bets;
     const byMessage = bets.filter((bet) => historyBetIds.has(bet.id));
     if (byMessage.length) return byMessage;
     if (!activeGroup) return [];
     return bets.filter((bet) => bet.groupId === activeGroup.id);
-  }, [activeGroup, bets, historyBetIds]);
+  }, [activeGroup, bets, historyBetIds, showingAllBets]);
 
 
   const resolvedOutcomes = useMemo(
@@ -742,7 +776,7 @@ export function LeaderboardView({ currentUser = null }: { currentUser?: AuthUser
         </div>
       </div>
 
-      {activeGroup && !hasMembershipRoster && (
+      {activeGroup && !showingAllBets && !hasMembershipRoster && (
         <div className="px-5 py-2 border-b border-border" style={{ background: "var(--muted)" }}>
           <Mono className="text-muted-foreground" style={{ fontSize: "10px" } as React.CSSProperties}>
             Group membership roster is missing, so this view currently shows all available leaderboard profiles.
@@ -971,6 +1005,8 @@ export function LeaderboardView({ currentUser = null }: { currentUser?: AuthUser
                       <BetMetricsCell
                         stats={playerStats}
                         currency={displayCurrency}
+                        fallbackWins={player.wins}
+                        fallbackResolved={player.disputes}
                       />
                     </motion.div>
                   );

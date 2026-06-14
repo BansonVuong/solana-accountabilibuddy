@@ -2,11 +2,19 @@ import Foundation
 import Combine
 
 struct BetDraftMessage {
+    enum Kind {
+        case bet
+        case invite
+    }
+
     let url: URL
+    let kind: Kind
+    let eyebrow: String
     let title: String
     let subtitle: String
-    let wallet: String?
-    let solBalance: Double?
+    let highlight: String
+    let footnote: String
+    let action: String
 }
 
 @MainActor
@@ -209,10 +217,13 @@ final class BetMessageViewModel: ObservableObject {
             refreshRecipientCandidates()
             sendDraft(BetDraftMessage(
                 url: inviteURL,
-                title: "Join BAAM conversation",
+                kind: .invite,
+                eyebrow: "BAAM · CONVERSATION",
+                title: "Join the challenge",
                 subtitle: "@\(created.conversation.ownerUsername) initialized this conversation. Open to join.",
-                wallet: nil,
-                solBalance: nil
+                highlight: "\(created.conversation.members.count) joined",
+                footnote: "Invite from @\(created.conversation.ownerUsername)",
+                action: "Tap to join"
             ))
             infoMessage = "Invite card ready to send."
         } catch {
@@ -259,10 +270,13 @@ final class BetMessageViewModel: ObservableObject {
         }
         sendDraft(BetDraftMessage(
             url: inviteURL,
-            title: "Join BAAM conversation",
+            kind: .invite,
+            eyebrow: "BAAM · CONVERSATION",
+            title: "Join the challenge",
             subtitle: "@\(conversation.ownerUsername) initialized this conversation. Open to join.",
-            wallet: nil,
-            solBalance: nil
+            highlight: "\(conversation.members.count) joined",
+            footnote: "Invite from @\(conversation.ownerUsername)",
+            action: "Tap to join"
         ))
         infoMessage = "Invite card ready to send again."
     }
@@ -361,10 +375,13 @@ final class BetMessageViewModel: ObservableObject {
 
             let draft = BetDraftMessage(
                 url: link,
-                title: "\(betType.rawValue) bet · \(request.stake) SOL",
+                kind: .bet,
+                eyebrow: "BAAM · \(betType.label.uppercased()) BET",
+                title: request.acceptor == "anyone" ? "Open challenge" : "Challenge for @\(request.acceptor)",
                 subtitle: request.terms,
-                wallet: profile?.wallet,
-                solBalance: nil
+                highlight: "\(request.stake) SOL",
+                footnote: "Created by @\(currentUser?.username ?? "challenger")",
+                action: "Tap to view & accept"
             )
             sendDraft(draft)
             infoMessage = "Bet created and ready to send in iMessage."
@@ -375,35 +392,59 @@ final class BetMessageViewModel: ObservableObject {
         isBusy = false
     }
 
-    func acceptSelectedBet() async {
+    func acceptSelectedBet(sendDraft: (BetDraftMessage) -> Void) async {
         guard let betId = selectedBetId else { return }
         do {
             try requireSignedIn()
             isBusy = true
             errorMessage = nil
             try await client.acceptBet(betId: betId)
-            selectedCard = try await client.fetchCard(betId: betId)
+            let card = try await client.fetchCard(betId: betId)
+            selectedCard = card
             try? await refreshProfile()
-            infoMessage = "Bet accepted."
+            sendDraft(try updateDraft(for: card, event: "Bet accepted"))
+            infoMessage = "Bet accepted. Update card ready to send."
         } catch {
             errorMessage = error.localizedDescription
         }
         isBusy = false
     }
 
-    func voteSelectedBet(_ choice: MessageBetVoteChoice) async {
+    func voteSelectedBet(_ choice: MessageBetVoteChoice, sendDraft: (BetDraftMessage) -> Void) async {
         guard let betId = selectedBetId else { return }
         do {
             try requireSignedIn()
             isBusy = true
             errorMessage = nil
             try await client.voteBet(betId: betId, choice: choice)
-            selectedCard = try await client.fetchCard(betId: betId)
-            infoMessage = "Vote submitted."
+            let card = try await client.fetchCard(betId: betId)
+            selectedCard = card
+            let votedFor = choice == .challenger ? card.challenger : card.acceptor
+            sendDraft(try updateDraft(for: card, event: "Vote for @\(votedFor)"))
+            infoMessage = "Vote submitted. Update card ready to send."
         } catch {
             errorMessage = error.localizedDescription
         }
         isBusy = false
+    }
+
+    private func updateDraft(for card: MessageBetCard, event: String) throws -> BetDraftMessage {
+        guard let link = URL(string: card.links.deepLink) else {
+            throw RelayerClientError.invalidResponse
+        }
+        let voteSummary = card.validation == "witness"
+            ? " · \(card.votes.total)/\(card.witnessesRequired) votes"
+            : ""
+        return BetDraftMessage(
+            url: link,
+            kind: .bet,
+            eyebrow: "BAAM · BET UPDATE",
+            title: event,
+            subtitle: card.terms,
+            highlight: "\(card.stake.amount) \(card.stake.currency) · \(card.statusLabel)\(voteSummary)",
+            footnote: "Updated by @\(currentUser?.username ?? "member")",
+            action: "Tap to view latest"
+        )
     }
 
     private func requireSignedIn() throws {
