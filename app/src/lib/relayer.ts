@@ -405,7 +405,7 @@ export function explorerTxUrl(signature: string): string {
   return `https://explorer.solana.com/tx/${signature}?cluster=devnet`;
 }
 
-/** Players ranked by $PALS. */
+/** Players ranked by SOL balance. */
 export function getLeaderboard(): Promise<{ players: Player[] }> {
   return req("/leaderboard");
 }

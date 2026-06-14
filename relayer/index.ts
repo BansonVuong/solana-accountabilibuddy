@@ -757,9 +757,10 @@ const server = http.createServer(async (req, res) => {
       const col = await groups();
       if (!col) return dbUnconfigured(res);
       const docs = await col
-        .find({ memberUsernames: authUser.username }, { projection: { _id: 0 } })
+        .find({}, { projection: { _id: 0 } })
         .toArray();
-      return json(res, 200, { groups: docs });
+      const visibleGroups = docs.filter((group) => isGroupMember(group, authUser.username));
+      return json(res, 200, { groups: visibleGroups });
     }
 
     // POST /groups  { name, initials? }  — create a group-chat record
@@ -1334,9 +1335,14 @@ const server = http.createServer(async (req, res) => {
       const messagesCol = await messages();
       if (!betsCol || !groupsCol || !messagesCol) return dbUnconfigured(res);
       const memberGroups = await groupsCol
-        .find({ memberUsernames: authUser.username }, { projection: { id: 1 } })
+        .find({}, { projection: { id: 1, memberUsernames: 1 } })
         .toArray();
-      const groupIds = memberGroups.map((group) => group.id);
+      const groupIds = memberGroups
+        .filter((group) => (
+          Array.isArray(group.memberUsernames)
+          && group.memberUsernames.some((member) => member.toLowerCase() === authUser.username.toLowerCase())
+        ))
+        .map((group) => group.id);
       const legacyBetIds = groupIds.length
         ? await messagesCol.distinct("betId", { groupId: { $in: groupIds }, betId: { $type: "string" } })
         : [];
@@ -1452,13 +1458,13 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, { bet: normalizeBetDoc(updated) });
     }
 
-    // GET /leaderboard  — players ranked by $PALS
+    // GET /leaderboard  — players ranked by SOL balance
     if (req.method === "GET" && req.url === "/leaderboard") {
       const col = await players();
       if (!col) return dbUnconfigured(res);
       const docs = await col
         .find({}, { projection: { _id: 0 } })
-        .sort({ pals: -1 })
+        .sort({ sol: -1, pals: -1 })
         .toArray();
       return json(res, 200, { players: docs });
     }
@@ -1469,7 +1475,7 @@ const server = http.createServer(async (req, res) => {
       if (!col) return dbUnconfigured(res);
       const docs = await col
         .find({}, { projection: { _id: 0 } })
-        .sort({ pals: -1, updatedAt: -1 })
+        .sort({ sol: -1, updatedAt: -1, pals: -1 })
         .toArray();
       return json(res, 200, { profiles: docs });
     }

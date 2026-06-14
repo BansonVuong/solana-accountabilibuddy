@@ -28,15 +28,12 @@ import {
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 
 /* ── Types & data ──────────────────────────────────────── */
-type Tab = "points" | "sol";
 
 interface Player {
   rank: number;
   name: string;
   initials: string;
   github: string;
-  pals: number;
-  palsDelta: number;
   sol: number;
   solDelta: number;
   wins: number;
@@ -50,7 +47,6 @@ interface BetHistoryOutcome {
   challengerKey: string;
   acceptorKey: string;
   winnerKey: string;
-  currency: string;
   stake: number;
 }
 
@@ -74,8 +70,6 @@ function fromProfile(profile: Profile, rank: number): Player {
     name: profile.name,
     initials: profile.initials,
     github: profile.github,
-    pals: profile.pals,
-    palsDelta: 0,
     sol: profile.sol,
     solDelta: 0,
     wins: profile.wins,
@@ -91,8 +85,6 @@ function fromRelayerPlayer(player: RelayerPlayer, rank: number): Player {
     name: player.name,
     initials: player.initials,
     github: player.github,
-    pals: player.pals,
-    palsDelta: player.palsDelta,
     sol: player.sol,
     solDelta: player.solDelta,
     wins: player.wins,
@@ -113,10 +105,6 @@ function toInitials(name: string): string {
   return `${parts[0]![0] ?? ""}${parts[1]![0] ?? ""}`.toUpperCase();
 }
 
-function toCurrency(value: string | undefined): string {
-  const normalized = value?.trim().toUpperCase();
-  return normalized || "UNKNOWN";
-}
 
 function parseStakeAmount(stake: string): number {
   const normalized = stake.replace(/[^\d.-]/g, "");
@@ -240,10 +228,8 @@ function WinRateBar({ winRate }: { winRate: number }) {
 
 /* ── Main view ─────────────────────────────────────────── */
 export function LeaderboardView() {
-  const [tab, setTab] = useState<Tab>("points");
   const [groups, setGroups] = useState<Group[]>([]);
   const [activeGroupId, setActiveGroupId] = useState("");
-  const [selectedCurrency, setSelectedCurrency] = useState("ALL");
 
   const [players, setPlayers] = useState<Player[]>([]);
   const [bets, setBets] = useState<Bet[]>([]);
@@ -286,7 +272,7 @@ export function LeaderboardView() {
 
       if (profilesResult.status === "fulfilled" && profilesResult.value.profiles.length) {
         const mapped = [...profilesResult.value.profiles]
-          .sort((a, b) => b.pals - a.pals)
+          .sort((a, b) => b.sol - a.sol)
           .map((profile, index) => fromProfile(profile, index + 1));
         setPlayers(mapped);
         setPlayersLive(true);
@@ -297,7 +283,10 @@ export function LeaderboardView() {
         const { players: relayerPlayers } = await getLeaderboard();
         if (!alive) return;
         if (relayerPlayers.length) {
-          setPlayers(relayerPlayers.map((player, index) => fromRelayerPlayer(player, index + 1)));
+          const mapped = [...relayerPlayers]
+            .sort((a, b) => b.sol - a.sol)
+            .map((player, index) => fromRelayerPlayer(player, index + 1));
+          setPlayers(mapped);
           setPlayersLive(true);
         } else {
           setPlayers([]);
@@ -313,7 +302,7 @@ export function LeaderboardView() {
     void load();
     const interval = setInterval(() => {
       void load();
-    }, 30_000);
+    }, 3_000);
 
     return () => {
       alive = false;
@@ -348,7 +337,7 @@ export function LeaderboardView() {
     void loadHistory();
     const interval = setInterval(() => {
       void loadHistory();
-    }, 30_000);
+    }, 3_000);
 
     return () => {
       alive = false;
@@ -380,17 +369,13 @@ export function LeaderboardView() {
   }, [activeGroup, activeGroupMembers, players]);
 
   const sorted = useMemo(
-    () => [...groupPlayers].sort((a, b) =>
-      tab === "points" ? b.pals - a.pals : b.sol - a.sol
-    ),
-    [groupPlayers, tab],
+    () => [...groupPlayers].sort((a, b) => b.sol - a.sol),
+    [groupPlayers],
   );
 
   const poolTotal = useMemo(
-    () => tab === "points"
-      ? `${groupPlayers.reduce((sum, player) => sum + player.pals, 0).toLocaleString()} $PALS`
-      : `${groupPlayers.reduce((sum, player) => sum + player.sol, 0).toFixed(2)} SOL`,
-    [groupPlayers, tab],
+    () => `${groupPlayers.reduce((sum, player) => sum + player.sol, 0).toFixed(2)} SOL`,
+    [groupPlayers],
   );
 
   const historyBetIds = useMemo(
@@ -407,27 +392,6 @@ export function LeaderboardView() {
     return bets.filter((bet) => bet.groupId === activeGroup.id);
   }, [activeGroup, bets, historyBetIds]);
 
-  const availableCurrencies = useMemo(
-    () => Array.from(new Set(historyBets
-      .map((bet) => toCurrency(bet.currency))
-      .filter((currency) => currency !== "UNKNOWN")))
-      .sort(),
-    [historyBets],
-  );
-
-  useEffect(() => {
-    setSelectedCurrency("ALL");
-  }, [activeGroupId]);
-
-  useEffect(() => {
-    if (!availableCurrencies.length) {
-      setSelectedCurrency("ALL");
-      return;
-    }
-    setSelectedCurrency((current) => (
-      availableCurrencies.includes(current) ? current : availableCurrencies[0]!
-    ));
-  }, [availableCurrencies]);
 
   const resolvedOutcomes = useMemo(
     () => historyBets
@@ -435,8 +399,8 @@ export function LeaderboardView() {
       .map((bet): BetHistoryOutcome | null => {
         const winner = getResolvedWinner(bet);
         if (!winner) return null;
-        const currency = toCurrency(bet.currency);
-        if (selectedCurrency !== "ALL" && currency !== selectedCurrency) return null;
+        const currency = bet.currency.trim().toUpperCase();
+        if (currency !== "SOL") return null;
 
         const challengerKey = normalizeHandle(bet.challenger);
         const acceptorKey = normalizeHandle(bet.acceptor);
@@ -448,12 +412,11 @@ export function LeaderboardView() {
           challengerKey,
           acceptorKey,
           winnerKey,
-          currency,
           stake: parseStakeAmount(bet.stake),
         };
       })
       .filter((entry): entry is BetHistoryOutcome => Boolean(entry)),
-    [historyBets, selectedCurrency],
+    [historyBets],
   );
 
   const identityByKey = useMemo(() => {
@@ -559,9 +522,7 @@ export function LeaderboardView() {
     return map;
   }, [betPerformance]);
 
-  const displayCurrency = selectedCurrency === "ALL"
-    ? (availableCurrencies[0] ?? "SOL")
-    : selectedCurrency;
+  const displayCurrency = "SOL";
   const topWinner = betPerformance[0] ?? null;
   const highestWinRate = useMemo(() => {
     const qualified = betPerformance.filter((entry) => entry.resolved >= 2);
@@ -595,54 +556,23 @@ export function LeaderboardView() {
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
-          <div className="w-56">
-            <Select
-              value={activeGroupId}
-              onValueChange={setActiveGroupId}
-              disabled={groups.length === 0}
-            >
-              <SelectTrigger className="h-9">
-                <SelectValue placeholder="Select your group" />
-              </SelectTrigger>
-              <SelectContent>
-                {groups.map((group) => (
-                  <SelectItem key={group.id} value={group.id}>
-                    {group.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          {/* Toggle */}
-          <div className="flex items-center gap-1 p-1 rounded-xl border border-border"
-            style={{ background: "var(--muted)" }}>
-            {([
-              { key: "points", label: "$PALS Points" },
-              { key: "sol", label: "SOL Wager Pool" },
-            ] as { key: Tab; label: string }[]).map((entry) => (
-              <motion.button
-                key={entry.key}
-                whileTap={{ scale: 0.95 }}
-                onClick={() => setTab(entry.key)}
-                className="relative px-3 py-1.5 rounded-lg text-[12px] font-medium transition-colors"
-                style={{
-                  color: tab === entry.key ? "var(--primary-foreground)" : "var(--muted-foreground)",
-                }}
-              >
-                {tab === entry.key && (
-                  <motion.span
-                    layoutId="tab-bg"
-                    className="absolute inset-0 rounded-lg"
-                    style={{ background: "var(--primary)" }}
-                    transition={{ type: "spring", duration: 0.35, bounce: 0.15 }}
-                  />
-                )}
-                <span className="relative">{entry.label}</span>
-              </motion.button>
-            ))}
-          </div>
+        <div className="w-56">
+          <Select
+            value={activeGroupId}
+            onValueChange={setActiveGroupId}
+            disabled={groups.length === 0}
+          >
+            <SelectTrigger className="h-9">
+              <SelectValue placeholder="Select your group" />
+            </SelectTrigger>
+            <SelectContent>
+              {groups.map((group) => (
+                <SelectItem key={group.id} value={group.id}>
+                  {group.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
       </div>
 
@@ -657,7 +587,7 @@ export function LeaderboardView() {
       {activeGroup && (
         <div className="px-5 py-3 border-b border-border">
           <div className="rounded-xl border border-border bg-muted/20 p-3 space-y-3">
-            <div className="flex items-start justify-between gap-3">
+            <div className="flex items-start gap-3">
               <div className="flex items-center gap-2.5 min-w-0">
                 <div
                   className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
@@ -673,29 +603,6 @@ export function LeaderboardView() {
                     {resolvedOutcomes.length} resolved bets across {historyBetIds.size} bet cards
                   </p>
                 </div>
-              </div>
-
-              <div className="w-40 shrink-0">
-                <Select
-                  value={selectedCurrency}
-                  onValueChange={setSelectedCurrency}
-                  disabled={availableCurrencies.length <= 1}
-                >
-                  <SelectTrigger className="h-8">
-                    <SelectValue placeholder="Currency" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {availableCurrencies.length === 0 ? (
-                      <SelectItem value="ALL">No settled bets</SelectItem>
-                    ) : (
-                      availableCurrencies.map((currency) => (
-                        <SelectItem key={currency} value={currency}>
-                          {currency}
-                        </SelectItem>
-                      ))
-                    )}
-                  </SelectContent>
-                </Select>
               </div>
             </div>
 
@@ -802,7 +709,7 @@ export function LeaderboardView() {
         className="grid px-5 py-2 border-b border-border gap-3"
         style={{ gridTemplateColumns: "36px 1fr 140px 160px 220px" }}
       >
-        {["Rank", "Player", tab === "points" ? "$PALS Balance" : "SOL Balance", "Net Change", "Bet Metrics"].map((header) => (
+        {["Rank", "Player", "SOL Balance", "Net Change", "Bet Metrics"].map((header) => (
           <Mono key={header} className="text-muted-foreground uppercase" style={{ fontSize: "9px", letterSpacing: "0.1em" } as React.CSSProperties}>
             {header}
           </Mono>
@@ -892,19 +799,17 @@ export function LeaderboardView() {
                   <div>
                     <Mono className="text-foreground"
                       style={{ fontSize: "15px", fontWeight: 700 } as React.CSSProperties}>
-                      {tab === "points"
-                        ? player.pals.toLocaleString()
-                        : player.sol.toFixed(2)}
+                      {player.sol.toFixed(2)}
                     </Mono>
                     <Mono className="text-muted-foreground" style={{ fontSize: "9px" } as React.CSSProperties}>
-                      {tab === "points" ? "$PALS" : "SOL"}
+                      SOL
                     </Mono>
                   </div>
 
                   {/* Delta */}
                   <Delta
-                    value={tab === "points" ? player.palsDelta : player.solDelta}
-                    unit={tab === "points" ? "PALS" : "SOL"}
+                    value={player.solDelta}
+                    unit="SOL"
                   />
 
                   {/* Bet metrics */}
@@ -933,7 +838,7 @@ export function LeaderboardView() {
         <div className="flex items-center gap-1.5">
           <span className="w-1.5 h-1.5 rounded-full inline-block animate-pulse" style={{ background: "#14F195" }} />
           <Mono className="text-muted-foreground" style={{ fontSize: "10px" } as React.CSSProperties}>
-            LIVE · refreshes every 30s
+            LIVE · refreshes every 3s
           </Mono>
         </div>
       </div>
