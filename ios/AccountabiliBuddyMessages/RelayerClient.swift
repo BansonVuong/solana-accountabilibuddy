@@ -31,6 +31,53 @@ final class RelayerClient {
         self.authToken = authToken
     }
 
+    func login(email: String, password: String) async throws -> MessageAuthResponse {
+        struct LoginBody: Codable {
+            let email: String
+            let password: String
+        }
+        return try await requestJSON(
+            method: "POST",
+            path: "/auth/login",
+            body: LoginBody(email: email, password: password),
+            responseType: MessageAuthResponse.self
+        )
+    }
+
+    func signup(email: String, username: String, password: String) async throws -> MessageAuthResponse {
+        struct SignupBody: Codable {
+            let email: String
+            let username: String
+            let password: String
+        }
+        return try await requestJSON(
+            method: "POST",
+            path: "/auth/signup",
+            body: SignupBody(email: email, username: username, password: password),
+            responseType: MessageAuthResponse.self
+        )
+    }
+
+    func currentUser() async throws -> MessageAuthUser {
+        let response: MessageCurrentUserResponse = try await requestJSON(
+            method: "GET",
+            path: "/auth/me",
+            body: Optional<String>.none,
+            responseType: MessageCurrentUserResponse.self
+        )
+        return response.user
+    }
+
+    func fetchGroups() async throws -> [MessageGroup] {
+        let response: MessageGroupsResponse = try await requestJSON(
+            method: "GET",
+            path: "/groups",
+            body: Optional<String>.none,
+            responseType: MessageGroupsResponse.self
+        )
+        return response.groups
+    }
+
     func createBet(_ request: MessageCreateBetRequest) async throws -> MessageCreateBetResponse {
         try await requestJSON(
             method: "POST",

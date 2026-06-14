@@ -232,6 +232,10 @@ export interface Profile {
   disputes: number;
   streak: number;
   streakDir: "up" | "down" | "neutral";
+  /** Placeholder for future per-user total bet volume metric. */
+  betCount?: number;
+  /** Placeholder for future per-user completion-rate metric (percentage). */
+  completionRate?: number;
   createdAt: number;
   updatedAt: number;
 }
@@ -308,6 +312,10 @@ export interface Player {
   disputes: number;
   streak: number;
   streakDir: "up" | "down" | "neutral";
+  /** Placeholder for future per-user total bet volume metric. */
+  betCount?: number;
+  /** Placeholder for future per-user completion-rate metric (percentage). */
+  completionRate?: number;
 }
 
 /** Group-chat list. */

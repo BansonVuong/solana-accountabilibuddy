@@ -130,3 +130,36 @@ struct MessageBetCard: Codable, Identifiable {
 struct MessageErrorResponse: Codable {
     let error: String
 }
+
+struct MessageAuthUser: Codable {
+    let id: String
+    let email: String
+    let username: String
+    let initials: String
+    let createdAt: Double
+}
+
+struct MessageAuthResponse: Codable {
+    let token: String
+    let user: MessageAuthUser
+}
+
+struct MessageCurrentUserResponse: Codable {
+    let user: MessageAuthUser
+}
+
+struct MessageGroup: Codable, Identifiable {
+    let id: String
+    let name: String
+    let initials: String
+    let members: Int
+    let memberUsernames: [String]?
+    let pendingBet: Bool
+    let lastMsg: String
+    let time: String
+    let updatedAt: Double?
+}
+
+struct MessageGroupsResponse: Codable {
+    let groups: [MessageGroup]
+}

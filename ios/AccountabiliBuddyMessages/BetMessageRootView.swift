@@ -7,40 +7,113 @@ struct BetMessageRootView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 12) {
-                connectionCard
-                composeCard
-                selectedBetCard
+                if viewModel.isSignedIn {
+                    accountCard
+                    composeCard
+                    selectedBetCard
+                } else {
+                    authenticationCard
+                }
                 feedbackStrip
             }
             .padding(12)
         }
         .background(Color(.systemGroupedBackground))
+        .task {
+            await viewModel.bootstrap()
+        }
     }
 
-    private var connectionCard: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Relayer connection")
-                .font(.headline)
+    private var authenticationCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(viewModel.isCreatingAccount ? "Create your account" : "Welcome back")
+                .font(.title3.weight(.semibold))
+            Text(viewModel.isCreatingAccount
+                 ? "Create an AccountabiliBuddy account to send bets in Messages."
+                 : "Sign in to send and manage bets without leaving Messages.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
 
-            TextField("http://127.0.0.1:8787", text: $viewModel.relayerURL)
+            TextField("Email", text: $viewModel.email)
+                .keyboardType(.emailAddress)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
                 .textFieldStyle(.roundedBorder)
 
-            SecureField("Bearer token", text: $viewModel.authToken)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-                .textFieldStyle(.roundedBorder)
-
-            TextField("Default group id", text: $viewModel.groupId)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-                .textFieldStyle(.roundedBorder)
-
-            Button("Save connection settings") {
-                viewModel.saveConnectionSettings()
+            if viewModel.isCreatingAccount {
+                TextField("Username", text: $viewModel.username)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .textFieldStyle(.roundedBorder)
             }
-            .buttonStyle(.bordered)
+
+            SecureField("Password", text: $viewModel.password)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .textFieldStyle(.roundedBorder)
+
+            Button {
+                Task { await viewModel.authenticate() }
+            } label: {
+                Text(viewModel.isCreatingAccount ? "Create account" : "Sign in")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(viewModel.isBusy)
+
+            Button(viewModel.isCreatingAccount ? "Already have an account? Sign in" : "New here? Create an account") {
+                viewModel.isCreatingAccount.toggle()
+                viewModel.errorMessage = nil
+            }
+            .font(.footnote)
+            .frame(maxWidth: .infinity)
+        }
+        .padding(12)
+        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12))
+    }
+
+    private var accountCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(viewModel.currentUser?.username ?? "")
+                        .font(.headline)
+                    Text(viewModel.currentUser?.email ?? "")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Button("Sign out") {
+                    viewModel.signOut()
+                }
+                .font(.caption)
+            }
+
+            if viewModel.groups.isEmpty {
+                Text("You do not belong to a group yet. Create or join one in AccountabiliBuddy, then refresh.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Button("Refresh groups") {
+                    Task {
+                        do {
+                            try await viewModel.refreshGroups()
+                        } catch {
+                            viewModel.errorMessage = error.localizedDescription
+                        }
+                    }
+                }
+                .buttonStyle(.bordered)
+            } else {
+                Picker("Send to group", selection: Binding(
+                    get: { viewModel.groupId },
+                    set: { viewModel.selectGroup($0) }
+                )) {
+                    ForEach(viewModel.groups) { group in
+                        Text("\(group.name) (\(group.members))").tag(group.id)
+                    }
+                }
+                .pickerStyle(.menu)
+            }
         }
         .padding(12)
         .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12))
@@ -111,7 +184,7 @@ struct BetMessageRootView: View {
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.borderedProminent)
-            .disabled(viewModel.isBusy)
+            .disabled(viewModel.isBusy || viewModel.groupId.isEmpty)
         }
         .padding(12)
         .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12))

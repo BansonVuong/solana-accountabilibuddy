@@ -9,8 +9,12 @@ struct BetDraftMessage {
 
 @MainActor
 final class BetMessageViewModel: ObservableObject {
-    @Published var relayerURL: String
-    @Published var authToken: String
+    @Published var email: String = ""
+    @Published var username: String = ""
+    @Published var password: String = ""
+    @Published var isCreatingAccount: Bool = false
+    @Published var currentUser: MessageAuthUser?
+    @Published var groups: [MessageGroup] = []
     @Published var groupId: String
 
     @Published var betType: MessageBetType = .PERSONAL
@@ -33,40 +37,119 @@ final class BetMessageViewModel: ObservableObject {
     @Published var infoMessage: String?
     @Published var errorMessage: String?
 
+    var isSignedIn: Bool { currentUser != nil }
+
     private let defaults = UserDefaults.standard
-    private let relayerURLKey = "imessage.relayerURL"
     private let authTokenKey = "imessage.authToken"
     private let groupIDKey = "imessage.defaultGroupID"
+    private let productionURL = URL(string: "https://66.42.115.38.nip.io")!
+    private var authToken: String
+    private var hasBootstrapped = false
     private let client: RelayerClient
 
     init() {
-        let savedURL = defaults.string(forKey: relayerURLKey) ?? "http://127.0.0.1:8787"
         let savedToken = defaults.string(forKey: authTokenKey) ?? ""
         let savedGroup = defaults.string(forKey: groupIDKey) ?? ""
 
-        self.relayerURL = savedURL
         self.authToken = savedToken
         self.groupId = savedGroup
         self.client = RelayerClient(
-            baseURL: URL(string: savedURL) ?? URL(string: "http://127.0.0.1:8787")!,
+            baseURL: productionURL,
             authToken: savedToken
         )
     }
 
-    func saveConnectionSettings() {
-        defaults.set(relayerURL, forKey: relayerURLKey)
-        defaults.set(authToken, forKey: authTokenKey)
+    func bootstrap() async {
+        guard !hasBootstrapped else { return }
+        guard !authToken.isEmpty else {
+            hasBootstrapped = true
+            return
+        }
+
+        do {
+            isBusy = true
+            currentUser = try await client.currentUser()
+            try await refreshGroups()
+        } catch {
+            signOut(showMessage: false)
+        }
+        isBusy = false
+        hasBootstrapped = true
+    }
+
+    func authenticate() async {
+        let normalizedEmail = email.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedUsername = username.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedEmail.isEmpty, !password.isEmpty else {
+            errorMessage = "Email and password are required."
+            return
+        }
+        if isCreatingAccount && normalizedUsername.isEmpty {
+            errorMessage = "Username is required."
+            return
+        }
+
+        do {
+            isBusy = true
+            errorMessage = nil
+            let response: MessageAuthResponse
+            if isCreatingAccount {
+                response = try await client.signup(email: normalizedEmail, username: normalizedUsername, password: password)
+            } else {
+                response = try await client.login(email: normalizedEmail, password: password)
+            }
+            authToken = response.token
+            currentUser = response.user
+            client.update(baseURL: productionURL, authToken: response.token)
+            defaults.set(response.token, forKey: authTokenKey)
+            password = ""
+            try await refreshGroups()
+            infoMessage = isCreatingAccount ? "Account created." : "Signed in."
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+        isBusy = false
+    }
+
+    func refreshGroups() async throws {
+        groups = try await client.fetchGroups().sorted {
+            ($0.updatedAt ?? 0) > ($1.updatedAt ?? 0)
+        }
+        if !groups.contains(where: { $0.id == groupId }) {
+            groupId = groups.first?.id ?? ""
+        }
         defaults.set(groupId, forKey: groupIDKey)
+    }
+
+    func selectGroup(_ id: String) {
+        groupId = id
+        defaults.set(id, forKey: groupIDKey)
+    }
+
+    func signOut(showMessage: Bool = true) {
+        authToken = ""
+        currentUser = nil
+        groups = []
+        groupId = ""
+        selectedBetId = nil
+        selectedCard = nil
+        client.update(baseURL: productionURL, authToken: "")
+        defaults.removeObject(forKey: authTokenKey)
+        defaults.removeObject(forKey: groupIDKey)
+        if showMessage {
+            infoMessage = "Signed out."
+        }
     }
 
     func openFromIncomingURL(_ url: URL?) async {
         guard let id = Self.betId(from: url) else { return }
+        await bootstrap()
         await loadBetCard(id)
     }
 
     func loadBetCard(_ betId: String) async {
         do {
-            try configureClient()
+            try requireSignedIn()
             isBusy = true
             errorMessage = nil
             selectedBetId = betId
@@ -80,7 +163,7 @@ final class BetMessageViewModel: ObservableObject {
 
     func createBetAndDraftMessage(sendDraft: (BetDraftMessage) -> Void) async {
         do {
-            try configureClient()
+            try requireSignedIn()
             let request = try buildCreateBetRequest()
             isBusy = true
             errorMessage = nil
@@ -107,7 +190,7 @@ final class BetMessageViewModel: ObservableObject {
     func acceptSelectedBet() async {
         guard let betId = selectedBetId else { return }
         do {
-            try configureClient()
+            try requireSignedIn()
             isBusy = true
             errorMessage = nil
             try await client.acceptBet(betId: betId)
@@ -122,7 +205,7 @@ final class BetMessageViewModel: ObservableObject {
     func voteSelectedBet(_ choice: MessageBetVoteChoice) async {
         guard let betId = selectedBetId else { return }
         do {
-            try configureClient()
+            try requireSignedIn()
             isBusy = true
             errorMessage = nil
             try await client.voteBet(betId: betId, choice: choice)
@@ -134,15 +217,10 @@ final class BetMessageViewModel: ObservableObject {
         isBusy = false
     }
 
-    private func configureClient() throws {
-        guard let baseURL = URL(string: relayerURL.trimmingCharacters(in: .whitespacesAndNewlines)) else {
-            throw RelayerClientError.invalidBaseURL
+    private func requireSignedIn() throws {
+        if authToken.isEmpty || currentUser == nil {
+            throw RelayerClientError.server("Sign in to continue.")
         }
-        client.update(
-            baseURL: baseURL,
-            authToken: authToken.trimmingCharacters(in: .whitespacesAndNewlines)
-        )
-        saveConnectionSettings()
     }
 
     private func buildCreateBetRequest() throws -> MessageCreateBetRequest {

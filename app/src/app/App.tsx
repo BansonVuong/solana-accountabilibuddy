@@ -3,7 +3,7 @@ import { useState, useEffect, useMemo, useRef } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
   MessageSquare, Shield, GitBranch, BarChart3,
-  Zap, Sun, Moon, Bell, ChevronRight
+  Zap, Sun, Moon, Bell, ChevronRight, Copy, Check
 } from "lucide-react";
 import { Mono, Avatar, Pill } from "./components/ui";
 import { ChatView }        from "./components/ChatView";
@@ -32,10 +32,6 @@ import {
 
 /* ── Navigation config ─────────────────────────────────── */
 type ViewId = "chat" | "escrow" | "git" | "leaderboard";
-
-function shortAddress(address: string): string {
-  return `${address.slice(0, 4)}…${address.slice(-4)}`;
-}
 
 const NAV: {
   id:       ViewId;
@@ -108,6 +104,7 @@ export default function App() {
   const [profileLoading, setProfileLoading] = useState(false);
   const [profileError, setProfileError] = useState<string | null>(null);
   const [profile, setProfile] = useState<ProfileSummary | null>(null);
+  const [walletCopied, setWalletCopied] = useState(false);
   const [authReady, setAuthReady] = useState(false);
   const [authLoading, setAuthLoading] = useState(false);
   const [authMode, setAuthMode] = useState<"signup" | "login">("signup");
@@ -362,7 +359,10 @@ export default function App() {
     const nextOpen = !profileOpen;
     setProfileOpen(nextOpen);
     if (nextOpen) setNotificationsOpen(false);
-    if (!nextOpen) return;
+    if (!nextOpen) {
+      setWalletCopied(false);
+      return;
+    }
 
     setProfileLoading(true);
     setProfileError(null);
@@ -373,6 +373,17 @@ export default function App() {
       setProfileError(err instanceof Error ? err.message : String(err));
     } finally {
       setProfileLoading(false);
+    }
+  }
+
+  async function copyWalletAddress(address: string): Promise<void> {
+    if (!address || typeof navigator === "undefined" || !navigator.clipboard) return;
+    try {
+      await navigator.clipboard.writeText(address);
+      setWalletCopied(true);
+      window.setTimeout(() => setWalletCopied(false), 1500);
+    } catch {
+      // Keep the UI quiet if clipboard permission is unavailable.
     }
   }
 
@@ -685,9 +696,25 @@ export default function App() {
                       <Mono className="text-muted-foreground block" style={{ fontSize: "9px" } as React.CSSProperties}>
                         WALLET
                       </Mono>
-                      <Mono className="text-foreground block mt-0.5" style={{ fontSize: "11px" } as React.CSSProperties}>
-                        {profile ? shortAddress(profile.wallet) : "—"}
-                      </Mono>
+                      <div className="mt-0.5 flex items-start gap-2">
+                        <Mono
+                          className="text-foreground block flex-1 break-all leading-tight"
+                          style={{ fontSize: "11px" } as React.CSSProperties}
+                        >
+                          {profile?.wallet ?? "—"}
+                        </Mono>
+                        <button
+                          type="button"
+                          onClick={() => { if (profile?.wallet) void copyWalletAddress(profile.wallet); }}
+                          disabled={!profile?.wallet}
+                          className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-muted-foreground hover:text-foreground disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                          style={{ fontSize: "10px" }}
+                          title={walletCopied ? "Wallet copied" : "Copy wallet"}
+                        >
+                          {walletCopied ? <Check size={10} /> : <Copy size={10} />}
+                          {walletCopied ? "Copied" : "Copy"}
+                        </button>
+                      </div>
                     </div>
                     <div className="rounded-lg border border-border p-2">
                       <Mono className="text-muted-foreground block" style={{ fontSize: "9px" } as React.CSSProperties}>
