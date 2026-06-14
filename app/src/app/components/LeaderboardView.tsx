@@ -8,7 +8,6 @@ import {
   Trophy,
   Flame,
   Star,
-  Activity,
   BarChart3,
 } from "lucide-react";
 import { Avatar, Card, Mono } from "./ui";
@@ -373,12 +372,6 @@ export function LeaderboardView() {
     [groupPlayers],
   );
 
-  const poolTotal = useMemo(
-    () => `${groupPlayers.reduce((sum, player) => sum + player.sol, 0).toFixed(2)} SOL`,
-    [groupPlayers],
-  );
-  const leaderboardLive = playersLive && groupsLive;
-
   const historyBetIds = useMemo(
     () => new Set(historyMessages
       .map((message) => message.betId)
@@ -544,27 +537,38 @@ export function LeaderboardView() {
             <Trophy size={16} style={{ color: "#FFB800" }} />
           </div>
           <div>
-            <p className="text-foreground" style={{ fontSize: "15px", fontWeight: 700 }}>Group Leaderboard</p>
+            <Mono
+              className="text-muted-foreground uppercase block"
+              style={{ fontSize: "9px", letterSpacing: "0.1em" } as React.CSSProperties}
+            >
+              Leaderboard
+            </Mono>
+            <p className="text-foreground" style={{ fontSize: "15px", fontWeight: 700 }}>Group standings (SOL balance)</p>
             <p className="text-muted-foreground" style={{ fontSize: "11px" }}>
               {activeGroup
-                ? `${sorted.length} players in ${activeGroup.name} · ${playersLive ? "live leaderboard" : "waiting for leaderboard data"} · ${historyLive ? "chat history synced" : "chat history pending"}`
+                ? `${sorted.length} ranked players in ${activeGroup.name} · ${playersLive ? "leaderboard live" : "leaderboard pending"} · ${historyLive ? "history synced" : "history pending"}`
                 : groups.length
-                  ? "Select a group to view its leaderboard"
+                  ? "Choose a group to view rankings"
                   : groupsLive
                     ? "No groups joined yet"
                     : "waiting for group data"}
             </p>
           </div>
         </div>
-
-        <div className="w-56">
+        <div className="w-56 space-y-1">
+          <Mono
+            className="text-muted-foreground uppercase block"
+            style={{ fontSize: "9px", letterSpacing: "0.1em" } as React.CSSProperties}
+          >
+            Group filter
+          </Mono>
           <Select
             value={activeGroupId}
             onValueChange={setActiveGroupId}
             disabled={groups.length === 0}
           >
             <SelectTrigger className="h-9">
-              <SelectValue placeholder="Select your group" />
+              <SelectValue placeholder="Choose group" />
             </SelectTrigger>
             <SelectContent>
               {groups.map((group) => (
@@ -825,41 +829,6 @@ export function LeaderboardView() {
                 })}
               </AnimatePresence>
             )}
-          </div>
-        </div>
-      </div>
-
-      {/* Footer */}
-      <div
-        className="px-5 py-3 border-t border-border"
-        style={{ background: "var(--muted)" }}
-      >
-        <div className="grid gap-2 sm:grid-cols-2">
-          <div className="rounded-lg border border-border bg-card/60 px-3 py-2 flex items-center justify-between gap-2">
-            <div className="flex items-center gap-1.5">
-              <Activity size={11} className="text-muted-foreground" />
-              <span className="text-muted-foreground" style={{ fontSize: "10px" }}>
-                Pool total
-              </span>
-            </div>
-            <Mono className="text-foreground" style={{ fontSize: "11px" } as React.CSSProperties}>
-              {poolTotal}
-            </Mono>
-          </div>
-
-          <div className="rounded-lg border border-border bg-card/60 px-3 py-2 flex items-center justify-between gap-2">
-            <span className="text-muted-foreground" style={{ fontSize: "10px" }}>
-              Leaderboard status
-            </span>
-            <div className="flex items-center gap-1.5">
-              <span
-                className={`w-1.5 h-1.5 rounded-full inline-block ${leaderboardLive ? "animate-pulse" : ""}`}
-                style={{ background: leaderboardLive ? "#14F195" : "#8A99AD" }}
-              />
-              <Mono className="text-muted-foreground" style={{ fontSize: "10px" } as React.CSSProperties}>
-                {leaderboardLive ? "Live · refreshes every 3s" : "Waiting for updates"}
-              </Mono>
-            </div>
           </div>
         </div>
       </div>
