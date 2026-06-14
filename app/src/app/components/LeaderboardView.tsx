@@ -326,10 +326,11 @@ export function LeaderboardView({ currentUser = null }: { currentUser?: AuthUser
     let alive = true;
 
     const load = async (): Promise<void> => {
-      const [groupsResult, profilesResult, betsResult] = await Promise.allSettled([
+      const [groupsResult, profilesResult, betsResult, leaderboardResult] = await Promise.allSettled([
         getGroups(),
         getProfiles(),
         getBets(),
+        getLeaderboard(),
       ]);
       if (!alive) return;
 
@@ -353,31 +354,26 @@ export function LeaderboardView({ currentUser = null }: { currentUser?: AuthUser
       } else {
         setBets([]);
       }
-
-      if (profilesResult.status === "fulfilled" && profilesResult.value.profiles.length) {
-        const mapped = [...profilesResult.value.profiles]
+      const profilePlayers = profilesResult.status === "fulfilled"
+        ? [...profilesResult.value.profiles]
           .sort((a, b) => b.sol - a.sol)
-          .map((profile, index) => fromProfile(profile, index + 1));
-        setPlayers(mapped);
+          .map((profile, index) => fromProfile(profile, index + 1))
+        : [];
+      const leaderboardPlayers = leaderboardResult.status === "fulfilled"
+        ? [...leaderboardResult.value.players]
+          .sort((a, b) => b.sol - a.sol)
+          .map((player, index) => fromRelayerPlayer(player, index + 1))
+        : [];
+
+      if (leaderboardPlayers.length) {
+        setPlayers(leaderboardPlayers);
         setPlayersLive(true);
         return;
       }
-
-      try {
-        const { players: relayerPlayers } = await getLeaderboard();
-        if (!alive) return;
-        if (relayerPlayers.length) {
-          const mapped = [...relayerPlayers]
-            .sort((a, b) => b.sol - a.sol)
-            .map((player, index) => fromRelayerPlayer(player, index + 1));
-          setPlayers(mapped);
-          setPlayersLive(true);
-        } else {
-          setPlayers([]);
-          setPlayersLive(false);
-        }
-      } catch {
-        if (!alive) return;
+      if (profilePlayers.length) {
+        setPlayers(profilePlayers);
+        setPlayersLive(true);
+      } else {
         setPlayers([]);
         setPlayersLive(false);
       }
