@@ -274,8 +274,8 @@ async function handleBetCommand(interaction: ChatInputCommandInteraction): Promi
       new ActionRowBuilder<TextInputBuilder>().addComponents(
         new TextInputBuilder()
           .setCustomId("opponent")
-          .setLabel("Opponent Discord username (or leave blank for anyone)")
-          .setPlaceholder("e.g. alice or @alice")
+          .setLabel("Opponent username (blank = anyone)")
+          .setPlaceholder("e.g. alice or @alice — leave blank to challenge anyone")
           .setStyle(TextInputStyle.Short)
           .setRequired(false),
       ),
