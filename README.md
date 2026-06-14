@@ -1,4 +1,4 @@
-# AccountabiliBuddy
+# BAAM
 
 ## Environments
 
