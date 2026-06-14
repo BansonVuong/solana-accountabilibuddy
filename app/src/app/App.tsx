@@ -1,5 +1,5 @@
 /* MARKER-MAKE-KIT-INVOKED */
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
   MessageSquare, Shield, GitBranch, BarChart3,
@@ -14,12 +14,21 @@ import { useRelayerHealth } from "../lib/useRelayer";
 import {
   AUTH_TOKEN_STORAGE_KEY,
   getCurrentAuthUser,
+  getGroups,
   getProfileSummary,
   loginWithEmail,
   signupWithEmail,
   type AuthUser,
   type ProfileSummary,
 } from "../lib/relayer";
+import {
+  countUnreadGroupNotifications,
+  markAllGroupNotificationsRead,
+  mergeGroupNotifications,
+  parseStoredGroupNotifications,
+  parseStoredStringArray,
+  type GroupNotification,
+} from "../lib/groupNotifications";
 
 /* ── Navigation config ─────────────────────────────────── */
 type ViewId = "chat" | "escrow" | "git" | "leaderboard";
@@ -105,6 +114,8 @@ export default function App() {
   const [authError, setAuthError] = useState<string | null>(null);
   const [authUser, setAuthUser] = useState<AuthUser | null>(null);
   const [chatUnreadCount, setChatUnreadCount] = useState(0);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [groupNotifications, setGroupNotifications] = useState<GroupNotification[]>([]);
   const [authForm, setAuthForm] = useState({
     email: "",
     username: "",
@@ -148,6 +159,86 @@ export default function App() {
     };
   });
   const activeNav = nav.find((n) => n.id === activeView)!;
+  const groupNotificationStorageKey = authUser
+    ? `accountabilibuddy_group_notifications_${authUser.username.toLowerCase()}`
+    : null;
+  const seenGroupsStorageKey = authUser
+    ? `accountabilibuddy_seen_group_ids_${authUser.username.toLowerCase()}`
+    : null;
+  const sortedGroupNotifications = useMemo(
+    () => [...groupNotifications].sort((a, b) => b.createdAt - a.createdAt),
+    [groupNotifications],
+  );
+  const unreadNotificationCount = useMemo(
+    () => countUnreadGroupNotifications(groupNotifications),
+    [groupNotifications],
+  );
+
+  useEffect(() => {
+    if (!authUser || typeof window === "undefined" || !groupNotificationStorageKey || !seenGroupsStorageKey) {
+      setGroupNotifications([]);
+      return;
+    }
+
+    let alive = true;
+    let seenGroupIds = new Set(parseStoredStringArray(window.localStorage.getItem(seenGroupsStorageKey)));
+    const restored = parseStoredGroupNotifications(window.localStorage.getItem(groupNotificationStorageKey));
+    setGroupNotifications(restored);
+
+    function persistNotifications(next: GroupNotification[]): void {
+      window.localStorage.setItem(groupNotificationStorageKey, JSON.stringify(next.slice(0, 50)));
+    }
+
+    async function refreshGroupNotifications(): Promise<void> {
+      try {
+        const { groups } = await getGroups();
+        if (!alive) return;
+        const isFirstSync = seenGroupIds.size === 0 && restored.length === 0;
+        setGroupNotifications((prev) => {
+          const next = mergeGroupNotifications(prev, groups, isFirstSync, seenGroupIds);
+          persistNotifications(next);
+          return next;
+        });
+        for (const group of groups) {
+          seenGroupIds.add(group.id);
+        }
+        window.localStorage.setItem(seenGroupsStorageKey, JSON.stringify(Array.from(seenGroupIds)));
+      } catch {
+        // keep current notification state on transient errors
+      }
+    }
+
+    void refreshGroupNotifications();
+    const interval = window.setInterval(() => {
+      void refreshGroupNotifications();
+    }, 5000);
+
+    return () => {
+      alive = false;
+      window.clearInterval(interval);
+    };
+  }, [authUser, groupNotificationStorageKey, seenGroupsStorageKey]);
+
+  function markAllNotificationsRead(): void {
+    if (!groupNotificationStorageKey || typeof window === "undefined") return;
+    const now = Date.now();
+    setGroupNotifications((prev) => {
+      const { notifications: next, changed } = markAllGroupNotificationsRead(prev, now);
+      if (changed) {
+        window.localStorage.setItem(groupNotificationStorageKey, JSON.stringify(next));
+      }
+      return next;
+    });
+  }
+
+  function toggleNotifications(): void {
+    const nextOpen = !notificationsOpen;
+    setNotificationsOpen(nextOpen);
+    if (nextOpen) {
+      setProfileOpen(false);
+      markAllNotificationsRead();
+    }
+  }
 
   async function submitAuth(event: React.FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
@@ -183,12 +274,15 @@ export default function App() {
     setAuthUser(null);
     setProfile(null);
     setProfileOpen(false);
+    setNotificationsOpen(false);
+    setGroupNotifications([]);
     setAuthMode("login");
   }
 
   async function toggleProfile(): Promise<void> {
     const nextOpen = !profileOpen;
     setProfileOpen(nextOpen);
+    if (nextOpen) setNotificationsOpen(false);
     if (!nextOpen) return;
 
     setProfileLoading(true);
@@ -383,16 +477,70 @@ export default function App() {
 
         {/* Right actions */}
         <div className="flex items-center gap-1 shrink-0">
-          <button
-            className="relative p-1.5 rounded-lg hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
-            title="Notifications"
-          >
-            <Bell size={15} />
-            <span
-              className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full"
-              style={{ background: "#FF4A4A" }}
-            />
-          </button>
+          <div className="relative">
+            <button
+              onClick={toggleNotifications}
+              className="relative p-1.5 rounded-lg hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
+              title="Notifications"
+            >
+              <Bell size={15} />
+              {unreadNotificationCount > 0 && (
+                <span
+                  className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full"
+                  style={{ background: "#FF4A4A" }}
+                />
+              )}
+            </button>
+            <AnimatePresence>
+              {notificationsOpen && (
+                <motion.div
+                  initial={{ opacity: 0, y: -6, scale: 0.98 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: -6, scale: 0.98 }}
+                  transition={{ duration: 0.14 }}
+                  className="absolute right-0 top-[calc(100%+10px)] w-80 rounded-xl border border-border p-3 z-[60]"
+                  style={{
+                    background: dark ? "rgba(11,15,25,0.98)" : "rgba(255,255,255,0.98)",
+                    boxShadow: "0 10px 30px rgba(0,0,0,0.2)",
+                    backdropFilter: "blur(12px)",
+                  }}
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-foreground" style={{ fontSize: "12px", fontWeight: 700 }}>
+                      Group notifications
+                    </p>
+                    {unreadNotificationCount > 0 && (
+                      <Pill color="amber">{unreadNotificationCount} NEW</Pill>
+                    )}
+                  </div>
+                  <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+                    {sortedGroupNotifications.length === 0 && (
+                      <Mono className="text-muted-foreground block" style={{ fontSize: "10px" } as React.CSSProperties}>
+                        No group notifications yet.
+                      </Mono>
+                    )}
+                    {sortedGroupNotifications.map((entry) => (
+                      <div key={entry.groupId} className="rounded-lg border border-border p-2.5">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <p className="text-foreground truncate" style={{ fontSize: "12px", fontWeight: 600 }}>
+                              You were added to {entry.groupName}
+                            </p>
+                            <Mono className="text-muted-foreground block mt-0.5" style={{ fontSize: "10px" } as React.CSSProperties}>
+                              {new Date(entry.createdAt).toLocaleString()}
+                            </Mono>
+                          </div>
+                          {!entry.readAt && (
+                            <span className="w-2 h-2 rounded-full mt-1 shrink-0" style={{ background: "#FF4A4A" }} />
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
           <button
             onClick={() => setDark(d => !d)}
             className="p-1.5 rounded-lg hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
