@@ -137,25 +137,20 @@ struct BetMessageRootView: View {
                 }
             }
             .pickerStyle(.segmented)
-            if viewModel.recipientCandidates.isEmpty {
-                TextField("Target username (optional)", text: $viewModel.recipientUsername)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    .textFieldStyle(.roundedBorder)
-                Text("Participants appear here after they open AccountabiliBuddy in this conversation and sign in once.")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            } else {
-                Picker("Target recipient", selection: $viewModel.recipientUsername) {
-                    Text("Any member").tag("")
-                    ForEach(viewModel.recipientCandidates, id: \.self) { username in
-                        Text("@\(username)").tag(username)
-                    }
+            Picker("Bet with", selection: $viewModel.recipientUsername) {
+                if viewModel.recipientCandidates.isEmpty {
+                    Text("No one found yet").tag("")
                 }
-                .pickerStyle(.menu)
+                ForEach(viewModel.recipientCandidates, id: \.self) { username in
+                    Text("@\(username)").tag(username)
+                }
             }
+            .pickerStyle(.menu)
+            .disabled(viewModel.recipientCandidates.isEmpty)
 
-            Text("Known participants are shown by AccountabiliBuddy username. Apple does not expose phone numbers or iCloud emails to Messages extensions.")
+            Text(viewModel.recipientCandidates.isEmpty
+                 ? "No one has been found yet. Another person must open AccountabiliBuddy in this conversation and sign in on their own phone before you can create a bet."
+                 : "Choose another signed-in AccountabiliBuddy user from this conversation.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
@@ -198,7 +193,7 @@ struct BetMessageRootView: View {
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.borderedProminent)
-            .disabled(viewModel.isBusy)
+            .disabled(viewModel.isBusy || viewModel.recipientCandidates.isEmpty)
         }
         .padding(12)
         .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12))
@@ -224,6 +219,21 @@ struct BetMessageRootView: View {
 
                 Text(card.terms)
                     .font(.subheadline)
+
+                if card.type == .PERSONAL {
+                    HStack(spacing: 8) {
+                        participantRole(
+                            label: "Challenger",
+                            username: card.challenger,
+                            color: .purple
+                        )
+                        participantRole(
+                            label: "Recipient",
+                            username: card.acceptor,
+                            color: .green
+                        )
+                    }
+                }
 
                 HStack {
                     Text("\(card.stake.amount) \(card.stake.currency)")
@@ -253,6 +263,20 @@ struct BetMessageRootView: View {
             .padding(12)
             .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12))
         }
+    }
+
+    private func participantRole(label: String, username: String, color: Color) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(label.uppercased())
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(color)
+            Text("@\(username)")
+                .font(.caption.weight(.semibold))
+                .lineLimit(1)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(8)
+        .background(color.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
     }
 
     @ViewBuilder
