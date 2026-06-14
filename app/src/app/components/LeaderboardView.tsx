@@ -47,6 +47,7 @@ interface BetHistoryOutcome {
   acceptorKey: string;
   winnerKey: string;
   stake: number;
+  occurredAt: number;
 }
 
 interface BetPerformance {
@@ -61,6 +62,7 @@ interface BetPerformance {
   totalWon: number;
   totalLost: number;
   net: number;
+  trend: number[];
 }
 
 function fromProfile(profile: Profile, rank: number): Player {
@@ -118,6 +120,16 @@ function formatStakeAmount(value: number, currency: string): string {
 
 function formatSignedStakeAmount(value: number, currency: string): string {
   return `${value > 0 ? "+" : ""}${formatStakeAmount(value, currency)} ${currency}`;
+}
+
+function inferBetTimestampMs(bet: Bet): number {
+  if (typeof bet.acceptedAt === "number" && Number.isFinite(bet.acceptedAt)) {
+    return bet.acceptedAt;
+  }
+  const match = /^bet-(\d+)-/.exec(bet.id);
+  if (!match?.[1]) return 0;
+  const parsed = Number(match[1]);
+  return Number.isFinite(parsed) ? parsed : 0;
 }
 
 function getVotesByVoter(bet: Bet): Record<string, BetVoteChoice> {
@@ -210,18 +222,52 @@ function BetMetricsCell({
   );
 }
 
-function WinRateBar({ winRate }: { winRate: number }) {
-  const color = winRate >= 60 ? "#14F195" : winRate >= 40 ? "#FFB800" : "#FF4A4A";
+function WinRateTrend({ points }: { points: number[] }) {
+  const series = points.length >= 2 ? points : [0, points[0] ?? 0];
+  const width = 140;
+  const height = 30;
+  const pad = 2;
+  const min = Math.min(...series);
+  const max = Math.max(...series);
+  const range = max - min || 1;
+  const xStep = (width - pad * 2) / (series.length - 1);
+  const baseline = height / 2;
+  const toY = (value: number): number => (
+    height - pad - ((value - min) / range) * (height - pad * 2)
+  );
+  const pointsAttr = series
+    .map((value, index) => `${pad + index * xStep},${toY(value)}`)
+    .join(" ");
+  const delta = series[series.length - 1] - series[0];
+  const stroke = delta > 0 ? "#14F195" : delta < 0 ? "#FF4A4A" : "#94A3B8";
+  const finalX = pad + (series.length - 1) * xStep;
+  const finalY = toY(series[series.length - 1]);
   return (
-    <div className="h-1.5 rounded-full bg-muted overflow-hidden">
-      <div
-        className="h-full rounded-full transition-all duration-300"
-        style={{
-          width: `${Math.max(0, Math.min(100, winRate))}%`,
-          background: color,
-        }}
+    <svg
+      viewBox={`0 0 ${width} ${height}`}
+      className="w-[140px] h-[30px] shrink-0"
+      role="img"
+      aria-label="player payout trend"
+    >
+      <line
+        x1={pad}
+        y1={baseline}
+        x2={width - pad}
+        y2={baseline}
+        stroke="var(--border)"
+        strokeDasharray="2 3"
+        strokeWidth="1"
       />
-    </div>
+      <polyline
+        fill="none"
+        stroke={stroke}
+        strokeWidth="2"
+        strokeLinejoin="round"
+        strokeLinecap="round"
+        points={pointsAttr}
+      />
+      <circle cx={finalX} cy={finalY} r="2.5" fill={stroke} />
+    </svg>
   );
 }
 
@@ -407,9 +453,11 @@ export function LeaderboardView() {
           acceptorKey,
           winnerKey,
           stake: parseStakeAmount(bet.stake),
+          occurredAt: inferBetTimestampMs(bet),
         };
       })
-      .filter((entry): entry is BetHistoryOutcome => Boolean(entry)),
+      .filter((entry): entry is BetHistoryOutcome => Boolean(entry))
+      .sort((a, b) => a.occurredAt - b.occurredAt || a.betId.localeCompare(b.betId)),
     [historyBets],
   );
 
@@ -450,6 +498,8 @@ export function LeaderboardView() {
   const betPerformance = useMemo(() => {
     type MutableBetPerformance = BetPerformance;
     const byPlayer = new Map<string, MutableBetPerformance>();
+    const runningNetByPlayer = new Map<string, number>();
+    const trendByPlayer = new Map<string, number[]>();
 
     const ensurePlayer = (key: string): MutableBetPerformance | null => {
       if (!key || key === "anyone") return null;
@@ -468,9 +518,24 @@ export function LeaderboardView() {
         totalWon: 0,
         totalLost: 0,
         net: 0,
+        trend: [0],
       };
       byPlayer.set(key, created);
+      runningNetByPlayer.set(key, 0);
+      trendByPlayer.set(key, [0]);
       return created;
+    };
+
+    const applyTrendDelta = (key: string, delta: number): void => {
+      const previous = runningNetByPlayer.get(key) ?? 0;
+      const next = previous + delta;
+      runningNetByPlayer.set(key, next);
+      const trend = trendByPlayer.get(key);
+      if (!trend) {
+        trendByPlayer.set(key, [0, next]);
+        return;
+      }
+      trend.push(next);
     };
 
     for (const outcome of resolvedOutcomes) {
@@ -483,10 +548,12 @@ export function LeaderboardView() {
       if (winner) {
         winner.wins += 1;
         winner.totalWon += outcome.stake;
+        applyTrendDelta(winner.key, outcome.stake);
       }
       if (loser) {
         loser.losses += 1;
         loser.totalLost += outcome.stake;
+        applyTrendDelta(loser.key, -outcome.stake);
       }
     }
 
@@ -495,7 +562,14 @@ export function LeaderboardView() {
         const resolved = entry.wins + entry.losses;
         const winRate = resolved > 0 ? (entry.wins / resolved) * 100 : 0;
         const net = entry.totalWon - entry.totalLost;
-        return { ...entry, resolved, winRate, net };
+        const trend = trendByPlayer.get(entry.key) ?? [0, net];
+        return {
+          ...entry,
+          resolved,
+          winRate,
+          net,
+          trend: trend.length >= 2 ? trend : [0, trend[0] ?? 0],
+        };
       })
       .filter((entry) => entry.resolved > 0)
       .sort((a, b) =>
@@ -665,7 +739,7 @@ export function LeaderboardView() {
             <div className="space-y-2">
               {betPerformance.length === 0 && (
                 <Mono className="text-muted-foreground block" style={{ fontSize: "10px" } as React.CSSProperties}>
-                  Resolve a few bets in chat to populate win-rate bars and payout totals.
+                  Resolve a few bets in chat to populate trend lines and payout totals.
                 </Mono>
               )}
 
@@ -699,8 +773,11 @@ export function LeaderboardView() {
                       </Mono>
                     </div>
                   </div>
-                  <div className="mt-2">
-                    <WinRateBar winRate={entry.winRate} />
+                  <div className="mt-2 flex items-center justify-between gap-2">
+                    <WinRateTrend points={entry.trend} />
+                    <Mono className="text-muted-foreground shrink-0" style={{ fontSize: "10px" } as React.CSSProperties}>
+                      {entry.winRate.toFixed(0)}%
+                    </Mono>
                   </div>
                 </div>
               ))}

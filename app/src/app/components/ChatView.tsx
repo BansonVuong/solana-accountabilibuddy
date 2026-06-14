@@ -864,7 +864,7 @@ export function ChatView({
   return (
     <>
       <div className="flex h-full rounded-2xl border border-border overflow-hidden" style={{ background: "var(--card)" }}>
-      <div className="w-60 flex flex-col shrink-0 border-r border-border" style={{ background: "var(--muted)" }}>
+      <div className="w-64 flex flex-col shrink-0 border-r border-border" style={{ background: "var(--muted)" }}>
         <div className="px-4 py-3 border-b border-border">
           <Mono className="text-muted-foreground uppercase" style={{ fontSize: "9px", letterSpacing: "0.1em" } as React.CSSProperties}>
             Group Chats
