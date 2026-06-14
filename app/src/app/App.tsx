@@ -114,6 +114,7 @@ export default function App() {
   const [authError, setAuthError] = useState<string | null>(null);
   const [authUser, setAuthUser] = useState<AuthUser | null>(null);
   const [chatUnreadCount, setChatUnreadCount] = useState(0);
+  const [chatSelectionRequest, setChatSelectionRequest] = useState<{ groupId: string; token: number } | null>(null);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [groupNotifications, setGroupNotifications] = useState<GroupNotification[]>([]);
   const [authForm, setAuthForm] = useState({
@@ -306,6 +307,14 @@ export default function App() {
       setProfileOpen(false);
       markAllNotificationsRead();
     }
+  }
+
+  function openBetInChat(groupId: string): void {
+    setChatSelectionRequest((previous) => ({
+      groupId,
+      token: (previous?.token ?? 0) + 1,
+    }));
+    setActiveView("chat");
   }
 
   async function submitAuth(event: React.FormEvent<HTMLFormElement>): Promise<void> {
@@ -754,8 +763,15 @@ export default function App() {
                 minHeight: activeView === "chat" ? "520px" : undefined,
               }}
             >
-              {activeView === "chat"        && <ChatView currentUser={authUser} onUnreadCountChange={setChatUnreadCount} />}
-              {activeView === "escrow"      && <EscrowView />}
+              {activeView === "chat"        && (
+                <ChatView
+                  currentUser={authUser}
+                  onUnreadCountChange={setChatUnreadCount}
+                  requestedGroupId={chatSelectionRequest?.groupId}
+                  requestedGroupToken={chatSelectionRequest?.token}
+                />
+              )}
+              {activeView === "escrow"      && <EscrowView onOpenBetChat={openBetInChat} />}
               {activeView === "git"         && <GitView />}
               {activeView === "leaderboard" && <LeaderboardView />}
             </motion.div>

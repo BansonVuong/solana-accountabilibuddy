@@ -396,9 +396,13 @@ function Message({
 export function ChatView({
   currentUser,
   onUnreadCountChange,
+  requestedGroupId,
+  requestedGroupToken,
 }: {
   currentUser: AuthUser;
   onUnreadCountChange?: (count: number) => void;
+  requestedGroupId?: string;
+  requestedGroupToken?: number;
 }) {
   const [activeGroup, setActiveGroup] = useState<string>("");
   const [input, setInput] = useState("");
@@ -420,6 +424,7 @@ export function ChatView({
   const [lastReadByGroup, setLastReadByGroup] = useState<Record<string, number>>({});
   const activeGroupRef = useRef<string>("");
   const lastReadByGroupRef = useRef<Record<string, number>>({});
+  const lastHandledGroupRequestTokenRef = useRef<number | undefined>(undefined);
   const bottomRef = useRef<HTMLDivElement>(null);
   const unreadStorageKey = `accountabilibuddy_last_read_by_group_${currentUser.username.toLowerCase()}`;
 
@@ -620,6 +625,14 @@ export function ChatView({
     setActiveGroup(groupId);
     markGroupRead(groupId, Date.now());
   }
+
+  useEffect(() => {
+    if (!requestedGroupId || requestedGroupToken === undefined) return;
+    if (lastHandledGroupRequestTokenRef.current === requestedGroupToken) return;
+    if (!groups.some((group) => group.id === requestedGroupId)) return;
+    lastHandledGroupRequestTokenRef.current = requestedGroupToken;
+    handleSelectGroup(requestedGroupId);
+  }, [requestedGroupId, requestedGroupToken, groups]);
 
   function openInputDialog(dialog: Extract<ChatDialog, { type: "create-group" | "add-member" }>): void {
     setDialogInput("");
