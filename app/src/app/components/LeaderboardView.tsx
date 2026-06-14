@@ -227,18 +227,19 @@ function WinRateTrend({ points }: { points: number[] }) {
   const width = 220;
   const height = 34;
   const pad = 3;
-  const tailWidth = 16;
+  const startX = 1.5;
+  const tailWidth = 22;
   const min = Math.min(...series);
   const max = Math.max(...series);
   const range = max - min || 1;
-  const trendWidth = Math.max(1, width - pad * 2 - tailWidth);
+  const trendWidth = Math.max(1, width - startX - pad - tailWidth);
   const xStep = trendWidth / (series.length - 1);
   const baseline = height / 2;
   const toY = (value: number): number => (
     height - pad - ((value - min) / range) * (height - pad * 2)
   );
   const chartPoints = series.map((value, index) => ({
-    x: pad + index * xStep,
+    x: startX + index * xStep,
     y: toY(value),
   }));
   const pointsAttr = chartPoints
@@ -247,18 +248,19 @@ function WinRateTrend({ points }: { points: number[] }) {
   const delta = series[series.length - 1] - series[0];
   const stroke = delta > 0 ? "#14F195" : delta < 0 ? "#FF4A4A" : "#94A3B8";
   const finalPoint = chartPoints[chartPoints.length - 1] ?? { x: width - pad, y: baseline };
-  const firstPoint = chartPoints[0] ?? { x: pad, y: baseline };
+  const firstPoint = chartPoints[0] ?? { x: startX, y: baseline };
   const tailEndX = width - pad;
   const areaPointsAttr = `${firstPoint.x},${height - pad} ${pointsAttr} ${tailEndX},${finalPoint.y} ${tailEndX},${height - pad}`;
   return (
     <svg
       viewBox={`0 0 ${width} ${height}`}
       className="w-full h-[34px]"
+      preserveAspectRatio="none"
       role="img"
       aria-label="player payout trend"
     >
       <line
-        x1={pad}
+        x1={startX}
         y1={baseline}
         x2={width - pad}
         y2={baseline}
