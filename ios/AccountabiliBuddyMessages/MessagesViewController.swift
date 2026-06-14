@@ -12,25 +12,30 @@ final class MessagesViewController: MSMessagesAppViewController {
 
     override func willBecomeActive(with conversation: MSConversation) {
         super.willBecomeActive(with: conversation)
-        openSelectedMessage(in: conversation)
+        openSelectedMessage(in: conversation, source: "willActive")
     }
 
     override func didSelect(_ message: MSMessage, conversation: MSConversation) {
         super.didSelect(message, conversation: conversation)
         requestPresentationStyle(.expanded)
-        openSelectedMessage(message, in: conversation)
+        openSelectedMessage(message, in: conversation, source: "didSelect")
     }
 
     override func didTransition(to presentationStyle: MSMessagesAppPresentationStyle) {
         super.didTransition(to: presentationStyle)
         guard presentationStyle == .expanded, let conversation = activeConversation else { return }
-        openSelectedMessage(in: conversation)
+        openSelectedMessage(in: conversation, source: "didTransition")
     }
 
-    private func openSelectedMessage(_ message: MSMessage? = nil, in conversation: MSConversation) {
-        let url = message?.url ?? conversation.selectedMessage?.url
+    private func openSelectedMessage(_ message: MSMessage? = nil, in conversation: MSConversation, source: String) {
+        let selected = conversation.selectedMessage
+        let url = message?.url ?? selected?.url
+        let caption = ((message?.layout ?? selected?.layout) as? MSMessageTemplateLayout)?.caption ?? "—"
         Task {
+            await viewModel.setDebug("[\(source)] url=\(url?.absoluteString ?? "nil") sel=\(selected != nil) cap=\(caption)")
             await updateParticipants(from: conversation)
+            // Don't let an empty willActive/didTransition callback wipe a URL we already routed.
+            guard url != nil else { return }
             await viewModel.openFromIncomingURL(url)
         }
     }

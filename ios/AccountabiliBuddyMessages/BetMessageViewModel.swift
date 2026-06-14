@@ -40,6 +40,7 @@ final class BetMessageViewModel: ObservableObject {
     @Published var isBusy: Bool = false
     @Published var infoMessage: String?
     @Published var errorMessage: String?
+    @Published var debugInfo: String = "no card opened yet"
 
     var isSignedIn: Bool { currentUser != nil }
 
@@ -147,11 +148,16 @@ final class BetMessageViewModel: ObservableObject {
         }
     }
 
+    func setDebug(_ text: String) {
+        debugInfo = text
+    }
+
     func openFromIncomingURL(_ url: URL?) async {
         if let conversationId = Self.conversationId(from: url) {
+            debugInfo = "got convId …\(conversationId.suffix(6))"
             pendingConversationId = conversationId
             await bootstrap()
-            guard isSignedIn else { return }
+            guard isSignedIn else { debugInfo = "convId …\(conversationId.suffix(6)) but NOT signed in"; return }
             // Tapping the invite card IS the join action. If we're already a joined member
             // of this exact conversation just refresh it; otherwise join automatically so
             // detection never depends on the recipient also finding a separate "Join" button.
@@ -245,7 +251,9 @@ final class BetMessageViewModel: ObservableObject {
             errorMessage = "Initialize or join this conversation first."
             return
         }
-        guard let inviteURL = URL(string: "accountabilibuddy://conversation/\(conversation.id)") else {
+        guard let inviteURL = Self.messagePayloadURL(
+            queryItems: [URLQueryItem(name: "conversationId", value: conversation.id)]
+        ) else {
             errorMessage = RelayerClientError.invalidResponse.localizedDescription
             return
         }
@@ -499,8 +507,27 @@ final class BetMessageViewModel: ObservableObject {
     }
 
     private static func conversationId(from url: URL?) -> String? {
-        guard let url, url.scheme == "accountabilibuddy", url.host == "conversation" else { return nil }
-        return url.pathComponents.filter { $0 != "/" }.first
+        guard let url else { return nil }
+        if let queryItems = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems,
+           let fromQuery = queryItems.first(where: { $0.name == "conversationId" })?.value,
+           !fromQuery.isEmpty {
+            return fromQuery
+        }
+        if url.scheme == "accountabilibuddy", url.host == "conversation" {
+            return url.pathComponents.filter { $0 != "/" }.first
+        }
+        let parts = url.pathComponents.filter { $0 != "/" }
+        if let marker = parts.firstIndex(where: { $0 == "conversation" || $0 == "conversations" }),
+           parts.indices.contains(marker + 1) {
+            return parts[marker + 1]
+        }
+        return nil
+    }
+
+    private static func messagePayloadURL(queryItems: [URLQueryItem]) -> URL? {
+        var components = URLComponents()
+        components.queryItems = queryItems
+        return components.url
     }
 
     private func refreshConversationState() async {

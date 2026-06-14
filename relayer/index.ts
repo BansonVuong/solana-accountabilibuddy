@@ -47,7 +47,6 @@ const PROFILE_INITIALS = process.env.PROFILE_INITIALS ?? "ME";
 const PROFILE_GITHUB   = process.env.PROFILE_GITHUB ?? "me";
 const AUTH_SECRET = process.env.AUTH_SECRET ?? "dev-only-insecure-auth-secret";
 const AUTH_SESSION_TTL_MS = Number(process.env.AUTH_SESSION_TTL_MS ?? 1000 * 60 * 60 * 24 * 30);
-const IMESSAGE_DEEP_LINK_BASE = process.env.IMESSAGE_DEEP_LINK_BASE ?? "accountabilibuddy://bet";
 
 // Custodial wallets + on-chain SOL bets.
 //   WALLET_SECRET_KEY      encryption key for stored wallet secrets (falls back to AUTH_SECRET)
@@ -385,15 +384,17 @@ function getOnChainStateLabel(state?: BetDoc["onChainState"]): string {
   }
 }
 
+function buildIMessagePayloadURL(queryItems: Record<string, string>): string {
+  const params = new URLSearchParams(queryItems);
+  return `?${params.toString()}`;
+}
+
 function buildIMessageBetDeepLink(betId: string): string {
-  const base = IMESSAGE_DEEP_LINK_BASE.endsWith("/")
-    ? IMESSAGE_DEEP_LINK_BASE.slice(0, -1)
-    : IMESSAGE_DEEP_LINK_BASE;
-  return `${base}/${encodeURIComponent(betId)}`;
+  return buildIMessagePayloadURL({ betId });
 }
 
 function buildIMessageConversationDeepLink(conversationId: string): string {
-  return `accountabilibuddy://conversation/${encodeURIComponent(conversationId)}`;
+  return buildIMessagePayloadURL({ conversationId });
 }
 
 // Decode a [u8; 32] zero-padded game id back into a string.
@@ -2365,7 +2366,9 @@ function toIMessageBetCard(viewerUsername: string, bet: BetDoc, group: GroupDoc)
 
 function parseIMessageBetDeepLink(raw: string): string | null {
   try {
-    const url = new URL(raw);
+    const trimmed = raw.trim();
+    if (!trimmed) return null;
+    const url = new URL(trimmed, "https://imessage.local");
     const fromQuery = url.searchParams.get("betId");
     if (fromQuery && fromQuery.trim()) return fromQuery.trim();
 

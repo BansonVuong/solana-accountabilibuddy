@@ -301,49 +301,67 @@ async function handleBetCommand(interaction: ChatInputCommandInteraction): Promi
   if (sub === "personal") {
     const user = await requireLinkedUser(interaction);
     if (!user) return;
+    if (!interaction.guild) {
+      await interaction.reply({
+        content: "Personal bets can only be created in a server channel.",
+        ephemeral: true,
+      });
+      return;
+    }
 
-    const modal = new ModalBuilder()
-      .setCustomId("modal_bet_create")
-      .setTitle("Create a Personal Bet");
+    const usersCol = await users();
+    if (!usersCol) {
+      await interaction.reply({ content: "Database not available.", ephemeral: true });
+      return;
+    }
 
-    modal.addComponents(
-      new ActionRowBuilder<TextInputBuilder>().addComponents(
-        new TextInputBuilder()
-          .setCustomId("terms")
-          .setLabel("Bet terms")
-          .setPlaceholder("e.g. I will run a 5k before Friday")
-          .setStyle(TextInputStyle.Paragraph)
-          .setMinLength(8)
-          .setMaxLength(280)
-          .setRequired(true),
-      ),
-      new ActionRowBuilder<TextInputBuilder>().addComponents(
-        new TextInputBuilder()
-          .setCustomId("stake")
-          .setLabel("Stake (SOL each)")
-          .setPlaceholder("e.g. 0.1")
-          .setStyle(TextInputStyle.Short)
-          .setRequired(true),
-      ),
-      new ActionRowBuilder<TextInputBuilder>().addComponents(
-        new TextInputBuilder()
-          .setCustomId("opponent")
-          .setLabel("Opponent username (blank = anyone)")
-          .setPlaceholder("e.g. alice or @alice — leave blank to challenge anyone")
-          .setStyle(TextInputStyle.Short)
-          .setRequired(false),
-      ),
-      new ActionRowBuilder<TextInputBuilder>().addComponents(
-        new TextInputBuilder()
-          .setCustomId("resolve_days")
-          .setLabel("Days to resolve (default 7)")
-          .setPlaceholder("7")
-          .setStyle(TextInputStyle.Short)
-          .setRequired(false),
-      ),
+    const linkedUsers = await usersCol
+      .find(
+        { discordId: { $exists: true } },
+        { projection: { _id: 0, id: 1, username: 1, discordId: 1 } },
+      )
+      .toArray();
+
+    const candidates = linkedUsers
+      .filter((candidate) => candidate.id !== user.id && typeof candidate.discordId === "string");
+
+    const memberChecks = await Promise.all(
+      candidates.map(async (candidate) => {
+        try {
+          const member = await interaction.guild!.members.fetch(candidate.discordId as string);
+          return {
+            value: candidate.discordId as string,
+            label: truncate(member.displayName, 100),
+            description: truncate(`@${candidate.username}`, 100),
+          };
+        } catch {
+          return null;
+        }
+      }),
     );
 
-    await interaction.showModal(modal);
+    const opponentOptions = memberChecks
+      .filter((entry): entry is { value: string; label: string; description: string } => Boolean(entry))
+      .sort((a, b) => a.label.localeCompare(b.label))
+      .slice(0, 24);
+
+    const select = new StringSelectMenuBuilder()
+      .setCustomId("personal_opponent_pick")
+      .setPlaceholder("Choose who to challenge")
+      .addOptions([
+        {
+          label: "Anyone",
+          description: "Leave open for any linked member in this server",
+          value: "anyone",
+        },
+        ...opponentOptions,
+      ]);
+
+    await interaction.reply({
+      content: "Choose a specific challenger target, or pick **Anyone**:",
+      components: [new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(select)],
+      ephemeral: true,
+    });
     return;
   }
 
@@ -472,7 +490,7 @@ async function handleBetSportsCommand(interaction: ChatInputCommandInteraction):
   });
 }
 
-// Game + side selected → ask for the stake (and optional opponent) via a modal.
+// Game + side selected → choose opponent (or Anyone) from linked server members.
 async function handleSportsGameSelect(interaction: StringSelectMenuInteraction): Promise<void> {
   const sport = interaction.customId.slice("sports_pick:".length);
   const [gameId, side] = (interaction.values[0] ?? "").split(":");
@@ -480,9 +498,78 @@ async function handleSportsGameSelect(interaction: StringSelectMenuInteraction):
     await interaction.reply({ content: "That selection wasn't valid. Try `/bet sports` again.", ephemeral: true });
     return;
   }
+  if (!interaction.guild) {
+    await interaction.reply({ content: "Sports bets can only be created in a server channel.", ephemeral: true });
+    return;
+  }
+
+  const usersCol = await users();
+  if (!usersCol) {
+    await interaction.reply({ content: "Database not available.", ephemeral: true });
+    return;
+  }
+
+  const linkedUsers = await usersCol
+    .find(
+      { discordId: { $exists: true } },
+      { projection: { _id: 0, id: 1, username: 1, discordId: 1 } },
+    )
+    .toArray();
+
+  const requester = await usersCol.findOne({ discordId: interaction.user.id }, { projection: { _id: 0, id: 1 } });
+  const requesterId = requester?.id;
+  const candidates = linkedUsers
+    .filter((candidate) => candidate.id !== requesterId && typeof candidate.discordId === "string");
+
+  const memberChecks = await Promise.all(
+    candidates.map(async (candidate) => {
+      try {
+        const member = await interaction.guild!.members.fetch(candidate.discordId as string);
+        return {
+          value: candidate.discordId as string,
+          label: truncate(member.displayName, 100),
+          description: truncate(`@${candidate.username}`, 100),
+        };
+      } catch {
+        return null;
+      }
+    }),
+  );
+
+  const opponentOptions = memberChecks
+    .filter((entry): entry is { value: string; label: string; description: string } => Boolean(entry))
+    .sort((a, b) => a.label.localeCompare(b.label))
+    .slice(0, 24);
+
+  const select = new StringSelectMenuBuilder()
+    .setCustomId(`sports_opponent_pick:${sport}:${gameId}:${side}`)
+    .setPlaceholder("Choose who to challenge")
+    .addOptions([
+      {
+        label: "Anyone",
+        description: "Leave open for any linked member in this server",
+        value: "anyone",
+      },
+      ...opponentOptions,
+    ]);
+
+  await interaction.update({
+    content: "Choose a specific challenger target, or pick **Anyone**:",
+    components: [new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(select)],
+  });
+}
+
+// Opponent selected for sports flow → collect stake via modal.
+async function handleSportsOpponentSelect(interaction: StringSelectMenuInteraction): Promise<void> {
+  const [, sport, gameId, side] = interaction.customId.split(":");
+  const selectedOpponentDiscordId = interaction.values[0] ?? "anyone";
+  if (!sport || !gameId || (side !== "home" && side !== "away")) {
+    await interaction.reply({ content: "That selection wasn't valid. Try `/bet sports` again.", ephemeral: true });
+    return;
+  }
 
   const modal = new ModalBuilder()
-    .setCustomId(`modal_sports_create:${sport}:${gameId}:${side}`)
+    .setCustomId(`modal_sports_create:${sport}:${gameId}:${side}:${selectedOpponentDiscordId}`)
     .setTitle("Place your sports bet");
 
   modal.addComponents(
@@ -493,14 +580,6 @@ async function handleSportsGameSelect(interaction: StringSelectMenuInteraction):
         .setPlaceholder("e.g. 0.1")
         .setStyle(TextInputStyle.Short)
         .setRequired(true),
-    ),
-    new ActionRowBuilder<TextInputBuilder>().addComponents(
-      new TextInputBuilder()
-        .setCustomId("opponent")
-        .setLabel("Opponent username (blank = anyone)")
-        .setPlaceholder("Leave blank to let anyone take the other side")
-        .setStyle(TextInputStyle.Short)
-        .setRequired(false),
     ),
   );
 
@@ -513,15 +592,14 @@ async function handleSportsBetModal(interaction: ModalSubmitInteraction): Promis
 
   const user = await requireLinkedUserFromDiscordId(interaction.user.id, interaction);
   if (!user) return;
-
-  const [, sport, gameId, side] = interaction.customId.split(":");
+  const [, sport, gameId, side, selectedOpponentDiscordIdRaw] = interaction.customId.split(":");
+  const selectedOpponentDiscordId = selectedOpponentDiscordIdRaw ?? "anyone";
   if (!sport || !gameId || (side !== "home" && side !== "away")) {
     await interaction.editReply("That bet selection expired. Run `/bet sports` again.");
     return;
   }
 
   const stakeRaw = interaction.fields.getTextInputValue("stake").trim();
-  const opponentRaw = interaction.fields.getTextInputValue("opponent").trim().replace(/^@/, "");
   const stake = Number(stakeRaw);
   if (!Number.isFinite(stake) || stake <= 0) {
     await interaction.editReply("Invalid stake. Enter a positive number like `0.1`.");
@@ -537,6 +615,35 @@ async function handleSportsBetModal(interaction: ModalSubmitInteraction): Promis
   // exist with the creator as a member.
   const conv = await getOrCreateDiscordConversation(interaction.channelId, interaction.guildId, user);
 
+  let acceptorUsername = "anyone";
+  if (selectedOpponentDiscordId !== "anyone") {
+    const usersCol = await users();
+    if (!usersCol) {
+      await interaction.editReply("Database not available.");
+      return;
+    }
+    const opponentUser = await usersCol.findOne({ discordId: selectedOpponentDiscordId });
+    if (!opponentUser) {
+      await interaction.editReply(
+        "That selected opponent is no longer linked. Please run `/bet sports` again.",
+      );
+      return;
+    }
+    if (opponentUser.id === user.id) {
+      await interaction.editReply("You cannot challenge yourself.");
+      return;
+    }
+    if (interaction.guild) {
+      try {
+        await interaction.guild.members.fetch(selectedOpponentDiscordId);
+      } catch {
+        await interaction.editReply("That selected opponent is no longer in this server. Please choose again.");
+        return;
+      }
+    }
+    acceptorUsername = opponentUser.username;
+  }
+
   const { ok, status, data } = await relayerCall("POST", "/bets", user, {
     source: "discord",
     discordConversationId: conv.id,
@@ -546,7 +653,7 @@ async function handleSportsBetModal(interaction: ModalSubmitInteraction): Promis
     backsHome: side === "home",
     stake: String(stake),
     currency: "SOL",
-    acceptor: opponentRaw || "anyone",
+    acceptor: acceptorUsername,
   });
 
   if (!ok || !data?.bet) {
@@ -676,17 +783,62 @@ async function handleButton(interaction: ButtonInteraction): Promise<void> {
 async function handleSelectMenu(interaction: StringSelectMenuInteraction): Promise<void> {
   if (interaction.customId.startsWith("sports_pick:")) {
     await handleSportsGameSelect(interaction);
+  } else if (interaction.customId.startsWith("sports_opponent_pick:")) {
+    await handleSportsOpponentSelect(interaction);
+  } else if (interaction.customId === "personal_opponent_pick") {
+    await handlePersonalOpponentSelect(interaction);
   }
 }
 
 // ── modal submit handler ──────────────────────────────────────────────────────
 
 async function handleModal(interaction: ModalSubmitInteraction): Promise<void> {
-  if (interaction.customId === "modal_bet_create") {
+  if (interaction.customId === "modal_bet_create" || interaction.customId.startsWith("modal_bet_create:")) {
     await handleBetCreateModal(interaction);
   } else if (interaction.customId.startsWith("modal_sports_create:")) {
     await handleSportsBetModal(interaction);
   }
+}
+
+// ── select: personal opponent ─────────────────────────────────────────────────
+
+async function handlePersonalOpponentSelect(interaction: StringSelectMenuInteraction): Promise<void> {
+  const selectedOpponentDiscordId = interaction.values[0] ?? "anyone";
+
+  const modal = new ModalBuilder()
+    .setCustomId(`modal_bet_create:${selectedOpponentDiscordId}`)
+    .setTitle("Create a Personal Bet");
+
+  modal.addComponents(
+    new ActionRowBuilder<TextInputBuilder>().addComponents(
+      new TextInputBuilder()
+        .setCustomId("terms")
+        .setLabel("Bet terms")
+        .setPlaceholder("e.g. I will run a 5k before Friday")
+        .setStyle(TextInputStyle.Paragraph)
+        .setMinLength(8)
+        .setMaxLength(280)
+        .setRequired(true),
+    ),
+    new ActionRowBuilder<TextInputBuilder>().addComponents(
+      new TextInputBuilder()
+        .setCustomId("stake")
+        .setLabel("Stake (SOL each)")
+        .setPlaceholder("e.g. 0.1")
+        .setStyle(TextInputStyle.Short)
+        .setRequired(true),
+    ),
+    new ActionRowBuilder<TextInputBuilder>().addComponents(
+      new TextInputBuilder()
+        .setCustomId("resolve_days")
+        .setLabel("Days to resolve (default 7)")
+        .setPlaceholder("7")
+        .setStyle(TextInputStyle.Short)
+        .setRequired(false),
+    ),
+  );
+
+  await interaction.showModal(modal);
 }
 
 // ── modal: create bet ─────────────────────────────────────────────────────────
@@ -699,8 +851,9 @@ async function handleBetCreateModal(interaction: ModalSubmitInteraction): Promis
 
   const terms = interaction.fields.getTextInputValue("terms").trim();
   const stakeRaw = interaction.fields.getTextInputValue("stake").trim();
-  const opponentRaw = interaction.fields.getTextInputValue("opponent").trim().replace(/^@/, "");
   const resolveDaysRaw = interaction.fields.getTextInputValue("resolve_days").trim();
+  const [, selectedOpponentDiscordIdRaw] = interaction.customId.split(":");
+  const selectedOpponentDiscordId = selectedOpponentDiscordIdRaw ?? "anyone";
 
   const stake = Number(stakeRaw);
   if (!Number.isFinite(stake) || stake <= 0) {
@@ -717,19 +870,30 @@ async function handleBetCreateModal(interaction: ModalSubmitInteraction): Promis
 
   // Resolve opponent username: look up by Discord username if provided
   let acceptorUsername = "anyone";
-  if (opponentRaw) {
+  if (selectedOpponentDiscordId !== "anyone") {
     const usersCol = await users();
     if (!usersCol) {
       await interaction.editReply("Database not available.");
       return;
     }
-    const opponentUser = await usersCol.findOne({ usernameLower: opponentRaw.toLowerCase() });
+    const opponentUser = await usersCol.findOne({ discordId: selectedOpponentDiscordId });
     if (!opponentUser) {
       await interaction.editReply(
-        `Could not find a linked AccountabiliBuddy user with the username **${opponentRaw}**.\n` +
-        `They need to run \`/setup\` first, or leave opponent blank to challenge anyone.`,
+        "That selected opponent is no longer linked. Please run `/bet personal` again.",
       );
       return;
+    }
+    if (opponentUser.id === user.id) {
+      await interaction.editReply("You cannot challenge yourself.");
+      return;
+    }
+    if (interaction.guild) {
+      try {
+        await interaction.guild.members.fetch(selectedOpponentDiscordId);
+      } catch {
+        await interaction.editReply("That selected opponent is no longer in this server. Please choose again.");
+        return;
+      }
     }
     acceptorUsername = opponentUser.username;
   }

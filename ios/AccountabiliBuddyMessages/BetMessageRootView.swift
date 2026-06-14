@@ -18,6 +18,11 @@ struct BetMessageRootView: View {
                     authenticationCard
                 }
                 feedbackStrip
+                Text("debug: \(viewModel.debugInfo)")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .textSelection(.enabled)
             }
             .padding(12)
         }
