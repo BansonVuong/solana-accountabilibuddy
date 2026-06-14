@@ -1,5 +1,5 @@
 /* MARKER-MAKE-KIT-INVOKED */
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
   MessageSquare, Shield, GitBranch, BarChart3,
@@ -14,6 +14,7 @@ import { useRelayerHealth } from "../lib/useRelayer";
 import {
   AUTH_TOKEN_STORAGE_KEY,
   getCurrentAuthUser,
+  getGroups,
   getProfileSummary,
   loginWithEmail,
   signupWithEmail,
@@ -33,9 +34,8 @@ const NAV: {
   label:    string;
   sublabel: string;
   Icon:     React.FC<{ size?: number; className?: string }>;
-  badge?:   string;
 }[] = [
-  { id:"chat",        label:"Group Chat",   sublabel:"Lobby & Bets",     Icon:MessageSquare, badge:"2" },
+  { id:"chat",        label:"Group Chat",   sublabel:"Lobby & Bets",     Icon:MessageSquare },
   { id:"escrow",      label:"Escrow Card",  sublabel:"P2P Wager Mode",   Icon:Shield },
   { id:"git",         label:"Dev Bet",      sublabel:"AI Git Inspector", Icon:GitBranch },
   { id:"leaderboard", label:"Leaderboard",  sublabel:"Rankings & Stats", Icon:BarChart3 },
@@ -99,6 +99,7 @@ export default function App() {
   const [profileLoading, setProfileLoading] = useState(false);
   const [profileError, setProfileError] = useState<string | null>(null);
   const [profile, setProfile] = useState<ProfileSummary | null>(null);
+  const [chatUnreadCount, setChatUnreadCount] = useState(0);
   const [authReady, setAuthReady] = useState(false);
   const [authLoading, setAuthLoading] = useState(false);
   const [authMode, setAuthMode] = useState<"signup" | "login">("signup");
@@ -109,6 +110,8 @@ export default function App() {
     username: "",
     password: "",
   });
+  const chatSeenUpdatedAtByGroupRef = useRef<Record<string, number>>({});
+  const previousViewRef = useRef<ViewId>("chat");
 
   /* Apply dark class to <html> */
   useEffect(() => {
@@ -138,6 +141,72 @@ export default function App() {
       });
     return () => { alive = false; };
   }, []);
+
+  useEffect(() => {
+    if (!authUser) return;
+
+    let alive = true;
+    let intervalId: ReturnType<typeof setInterval> | null = null;
+    const previousView = previousViewRef.current;
+    const justLeftChat = previousView === "chat" && activeView !== "chat";
+    previousViewRef.current = activeView;
+
+    function toSeenMap(groups: Array<{ id: string; updatedAt?: number }>): Record<string, number> {
+      const nextSeenByGroup: Record<string, number> = {};
+      for (const group of groups) {
+        nextSeenByGroup[group.id] = Number.isFinite(group.updatedAt) ? Number(group.updatedAt) : 0;
+      }
+      return nextSeenByGroup;
+    }
+
+    async function markChatSeen(): Promise<void> {
+      try {
+        const { groups } = await getGroups();
+        if (!alive) return;
+        chatSeenUpdatedAtByGroupRef.current = toSeenMap(groups);
+        setChatUnreadCount(0);
+      } catch {
+        // Ignore transient relayer/network errors for badge polling.
+      }
+    }
+
+    async function refreshUnreadCount(): Promise<void> {
+      try {
+        const { groups } = await getGroups();
+        if (!alive) return;
+        const unread = groups.reduce((count, group) => {
+          const lastSeen = chatSeenUpdatedAtByGroupRef.current[group.id] ?? 0;
+          const updatedAt = Number.isFinite(group.updatedAt) ? Number(group.updatedAt) : 0;
+          return updatedAt > lastSeen ? count + 1 : count;
+        }, 0);
+        setChatUnreadCount(unread);
+      } catch {
+        // Ignore transient relayer/network errors for badge polling.
+      }
+    }
+
+    if (activeView === "chat") {
+      void markChatSeen();
+      intervalId = setInterval(() => {
+        void markChatSeen();
+      }, 3000);
+    } else if (justLeftChat) {
+      void markChatSeen();
+      intervalId = setInterval(() => {
+        void refreshUnreadCount();
+      }, 3000);
+    } else {
+      void refreshUnreadCount();
+      intervalId = setInterval(() => {
+        void refreshUnreadCount();
+      }, 3000);
+    }
+
+    return () => {
+      alive = false;
+      if (intervalId) clearInterval(intervalId);
+    };
+  }, [activeView, authUser]);
 
   const activeNav = NAV.find(n => n.id === activeView)!;
 
@@ -334,8 +403,11 @@ export default function App() {
             className="flex items-center gap-0.5 p-0.5 rounded-xl border border-border"
             style={{ background: "var(--muted)" }}
           >
-            {NAV.map(({ id, label, Icon, badge }) => {
+            {NAV.map(({ id, label, Icon }) => {
               const active = activeView === id;
+              const badge = id === "chat" && chatUnreadCount > 0
+                ? `${Math.min(chatUnreadCount, 99)}`
+                : undefined;
               return (
                 <button
                   key={id}
