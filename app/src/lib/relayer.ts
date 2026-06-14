@@ -48,7 +48,7 @@ export interface ScoreboardGame {
   startTimeMs?: number;
 }
 
-export type Sport = "soccer" | "nba" | "nfl";
+export type Sport = "soccer" | "nba" | "nfl" | "nhl";
 
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers ?? {});
@@ -142,9 +142,8 @@ export function getProfileSummary(): Promise<ProfileSummary> {
 }
 
 /**
- * Upcoming ESPN games currently exposed for sports betting.
- * For soccer, pass an optional `league` (e.g. "worldcup", "ucl", "epl")
- * to narrow the board to one competition.
+ * Upcoming sports-feed games currently exposed for sports betting.
+ * For soccer, pass an optional `league` alias or numeric league id.
  */
 export function getScoreboard(
   sport: Sport,
@@ -154,7 +153,7 @@ export function getScoreboard(
   return req(`/scoreboard?sport=${sport}${qs}`);
 }
 
-/** Final result for a single ESPN game (null until the game is final). */
+/** Final result for a single game (null until the game is final). */
 export function getGameResult(
   sport: Sport,
   id: string,
@@ -179,7 +178,7 @@ export function settleBets(): Promise<{ ok: boolean }> {
 
 /**
  * An on-chain 1v1 / group-chat sports wager. No witness is needed — the result
- * is verifiable from the ESPN scoreboard and settled by the oracle crank.
+ * is verifiable from the sports feed and settled by the oracle crank.
  */
 export interface SportsBet {
   pubkey: string;
@@ -190,7 +189,7 @@ export interface SportsBet {
   amountSol: number;
   oracle: string;
   sport: Sport;
-  /** ESPN game id. */
+  /** Numeric sports-feed event id. */
   gameId: string;
   /** true if the creator backs the home team (opponent gets the away side). */
   creatorBacksHome: boolean;
@@ -289,9 +288,10 @@ export interface Bet {
   acceptSig?: string;
   settleSig?: string;
   // ── external-validation (sports bets) ─────────────────────────────────────────
-  /** Present for sports bets settled by the ESPN scraper instead of witness votes. */
+  /** Present for sports bets settled by the sports feed instead of witness votes. */
   validation?: "sports";
   sport?: SportKind;
+  /** Legacy field name; stores the sports-feed event id. */
   espnGameId?: string;
   homeTeam?: string;
   awayTeam?: string;
@@ -299,7 +299,7 @@ export interface Bet {
   challengerBacksHome?: boolean;
 }
 
-/** Alias for the ESPN sport union (see {@link Sport}). */
+/** Alias for the relayer sport union (see {@link Sport}). */
 export type SportKind = Sport;
 
 export interface Player {
@@ -374,7 +374,7 @@ export function createBet(input: {
   resolveByDate?: number;
   /** Witness (non-sports) bets: unix-ms accept deadline; omit/null for indefinite. */
   acceptByDate?: number | null;
-  // Sports bets (internal DEV type): settled by the ESPN scraper.
+  // Sports bets (internal DEV type): settled by the sports feed.
   sport?: SportKind;
   gameId?: string;
   backsHome?: boolean;

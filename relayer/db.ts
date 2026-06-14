@@ -64,14 +64,14 @@ export interface BetDoc {
   groupSize: number;
   /** Witness votes keyed by voter name/handle. */
   votesByVoter?: Record<string, "challenger" | "acceptor">;
-  /** Winning side once witness quorum is met (or the ESPN scraper settles a sports bet). */
+  /** Winning side once witness quorum is met (or the sports feed settles a sports bet). */
   resolvedWinner?: "challenger" | "acceptor";
   // ── external-validation (sports bets) ─────────────────────────────────────────
-  /** Set for sports bets resolved by the ESPN scraper instead of witness votes. */
+  /** Set for sports bets resolved by the sports data feed instead of witness votes. */
   validation?: "sports";
-  /** ESPN sport for a sports bet. */
-  sport?: "soccer" | "nba" | "nfl";
-  /** ESPN game id (numeric string) the scraper settles against. */
+  /** Sport key used for sports-feed settlement. */
+  sport?: "soccer" | "nba" | "nfl" | "nhl";
+  /** Legacy field name; stores the numeric sports-feed event id to settle against. */
   espnGameId?: string;
   /** Team display names for the chosen game (for card rendering). */
   homeTeam?: string;

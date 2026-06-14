@@ -204,7 +204,7 @@ function EmbeddedBetCard({
   const pendingAcceptorLabel = bet.acceptor.toLowerCase() === "anyone"
     ? "any eligible member"
     : bet.acceptor;
-  // Sports bets are settled by the ESPN scraper, not witness votes.
+  // Sports bets are settled by the sports feed, not witness votes.
   const isSports = bet.validation === "sports";
   const isParticipant = isBetParticipant(bet, voterName);
   const canVote = !isSports && !isParticipant && bet.status === "ACTIVE" && !isResolved && !winner && !isVoting;
@@ -234,7 +234,7 @@ function EmbeddedBetCard({
             {bet.stake} {bet.currency}
           </span>
           <span className="text-muted-foreground" style={{ fontSize: "11px" }}>
-            {isSports ? "ESPN final result decides outcome" : "witnesses decide outcome"}
+            {isSports ? "official final result decides outcome" : "witnesses decide outcome"}
           </span>
         </div>
       </div>
@@ -242,7 +242,7 @@ function EmbeddedBetCard({
       <div className="px-4 pb-3 flex items-center justify-between">
         <Mono className="text-muted-foreground" style={{ fontSize: "10px" } as React.CSSProperties}>
           {isSports
-            ? `ESPN ${(bet.sport ?? "").toUpperCase()} · auto-settled`
+            ? `${(bet.sport ?? "").toUpperCase()} · auto-settled`
             : `quorum ${witnessThreshold} · votes ${votes.challenger}-${votes.acceptor}`}
         </Mono>
         <Mono className="text-muted-foreground" style={{ fontSize: "10px" } as React.CSSProperties}>
@@ -827,7 +827,7 @@ export function ChatView({
       // Witness bets require a future resolve-by deadline (the relayer enforces this
       // and fires the unresolved fallback after it). Default to one week out.
       resolveByDate: Date.now() + 7 * 24 * 60 * 60 * 1000,
-      // Sports bets: settled by the ESPN scraper instead of witnesses.
+      // Sports bets: settled by the sports feed instead of witnesses.
       ...(bet.sport ? {
         sport: bet.sport,
         gameId: bet.gameId,

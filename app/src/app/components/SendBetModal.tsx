@@ -27,7 +27,7 @@ export interface NewBet {
 }
 
 const SPORT_LABELS: Record<SportKind, string> = {
-  nba: "NBA", nfl: "NFL", soccer: "Soccer",
+  nba: "NBA", nfl: "NFL", nhl: "NHL", soccer: "Soccer",
 };
 
 interface SendBetModalProps {
@@ -78,7 +78,7 @@ export function SendBetModal({
   const isSports = betType === "DEV";
   const backedTeam = selectedGame ? (backsHome ? selectedGame.homeTeam : selectedGame.awayTeam) : "";
   const sportsTerms = selectedGame
-    ? `${SPORT_LABELS[sport]}: ${selectedGame.awayTeam} @ ${selectedGame.homeTeam} — I back ${backedTeam}. Settled by the final ESPN result.`
+    ? `${SPORT_LABELS[sport]}: ${selectedGame.awayTeam} @ ${selectedGame.homeTeam} — I back ${backedTeam}. Settled by the final official result.`
     : "";
 
   /* reset when closed */
@@ -285,7 +285,7 @@ export function SendBetModal({
                           </p>
                           <p className="text-muted-foreground leading-snug" style={{ fontSize: "10px" }}>
                             {t === "DEV"
-                              ? "Settled automatically from the final ESPN result"
+                              ? "Settled automatically from the official game result"
                               : "Peer accountability — group votes on outcome"}
                           </p>
                           {betType === t && (
@@ -312,7 +312,7 @@ export function SendBetModal({
                         <div className="space-y-3">
                           {/* Sport tabs */}
                           <div className="flex gap-1.5">
-                            {(["nba", "nfl", "soccer"] as SportKind[]).map(s => (
+                            {(["nba", "nfl", "nhl", "soccer"] as SportKind[]).map(s => (
                               <button
                                 key={s}
                                 onClick={() => setSport(s)}
@@ -463,7 +463,7 @@ export function SendBetModal({
                     {isSports ? (
                       <div className="space-y-3">
                         <p className="text-muted-foreground" style={{ fontSize: "12px" }}>
-                          This bet settles automatically from the final ESPN result — no terms to write.
+                          This bet settles automatically from the final game result — no terms to write.
                         </p>
                         <div
                           className="rounded-xl border p-4 space-y-3"

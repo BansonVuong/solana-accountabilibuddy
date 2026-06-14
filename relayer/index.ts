@@ -49,7 +49,7 @@ const IMESSAGE_DEEP_LINK_BASE = process.env.IMESSAGE_DEEP_LINK_BASE ?? "accounta
 //   WALLET_SECRET_KEY      encryption key for stored wallet secrets (falls back to AUTH_SECRET)
 //   WALLET_AIRDROP_LAMPORTS devnet airdrop per new wallet (default 2 SOL)
 //   SPORTS_BET_CREATE_WINDOW_SECS max lead time before kickoff to create a sports bet (default 24h)
-//   SPORTS_BET_SCOREBOARD_LOOKAHEAD_DAYS how many future days to scrape for upcoming sports games (default 3)
+//   SPORTS_BET_SCOREBOARD_LOOKAHEAD_DAYS how many future days to fetch for upcoming sports games (default 3)
 //   SPORTS_BET_SETTLE_AFTER_SECS earliest settle-at offset after kickoff for sports bets (default 60s)
 //   SOCIAL_BET_SETTLE_DELAY_SECS  delay before an accepted witness bet can settle (default 15s)
 const WALLET_AIRDROP_LAMPORTS = Number(process.env.WALLET_AIRDROP_LAMPORTS ?? 2 * web3.LAMPORTS_PER_SOL);
@@ -290,8 +290,25 @@ async function crankTimeouts(): Promise<void> {
 
 // ── sports bet helpers ────────────────────────────────────────────────────────
 
-const SPORT_NAMES: Sport[] = ["soccer", "nba", "nfl"];
+const SUPPORTED_SPORTS: Sport[] = ["soccer", "nba", "nfl", "nhl"];
+// On-chain program currently allows sport ids 0..2 only. NHL shares id=2; the
+// Mongo bet document keeps the true source sport for settlement lookups.
+const ON_CHAIN_SPORT_BY_INDEX: Record<number, Exclude<Sport, "nhl">> = {
+  0: "soccer",
+  1: "nba",
+  2: "nfl",
+};
+const ON_CHAIN_SPORT_INDEX: Record<Sport, number> = {
+  soccer: 0,
+  nba: 1,
+  nfl: 2,
+  nhl: 2,
+};
 type BetVoteChoice = "challenger" | "acceptor";
+
+function isSupportedSport(value: unknown): value is Sport {
+  return typeof value === "string" && SUPPORTED_SPORTS.includes(value as Sport);
+}
 
 function normalizeBetStatus(status: BetDoc["status"]): BetDoc["status"] {
   return status === "RESOLVED" ? "COMPLETED" : status;
@@ -391,7 +408,7 @@ function decodeSportsBet(
     amountLamports:   bet.amount.toNumber(),
     amountSol:        bet.amount.toNumber() / web3.LAMPORTS_PER_SOL,
     oracle:           bet.oraclePubkey.toBase58(),
-    sport:            SPORT_NAMES[bet.sport as number] ?? "soccer",
+    sport:            ON_CHAIN_SPORT_BY_INDEX[bet.sport as number] ?? "soccer",
     gameId:           decodeGameId(bet.gameId),
     creatorBacksHome: bet.creatorBacksHome,
     startTime:        bet.startTime.toNumber(),
@@ -400,7 +417,7 @@ function decodeSportsBet(
   };
 }
 
-// ── sports bet crank (scraper-powered) ───────────────────────────────────────
+// ── sports bet crank (sports-feed powered) ───────────────────────────────────
 
 async function crankSportsBets(): Promise<void> {
   const slot = await connection.getSlot("confirmed");
@@ -408,6 +425,7 @@ async function crankSportsBets(): Promise<void> {
   if (now === null) return;
 
   const onChainBets = await program.account.sportsBet.all();
+  const betsCol = await bets();
 
   for (const { publicKey: betPubkey, account: bet } of onChainBets) {
     if (!("locked" in bet.state)) continue;
@@ -419,17 +437,26 @@ async function crankSportsBets(): Promise<void> {
     const gameId = decodeGameId(bet.gameId);
 
     // Chat bets reuse this escrow but store a non-numeric bet id as the game id and
-    // are settled from witness votes by crankWitnessBets — never from ESPN.
+    // are settled from witness votes by crankWitnessBets — never from sports feeds.
     if (!/^\d+$/.test(gameId)) continue;
-
-    // sport is stored as a u8 enum: 0=soccer, 1=nba, 2=nfl
-    const sport: Sport = SPORT_NAMES[bet.sport as number] ?? "soccer";
+    // sport is stored on-chain as a u8 enum (0=soccer, 1=nba, 2=nfl), but the
+    // linked bet doc can override this (e.g. NHL shares enum id=2).
+    let sport: Sport = ON_CHAIN_SPORT_BY_INDEX[bet.sport as number] ?? "soccer";
+    if (betsCol) {
+      const linkedBet = await betsCol.findOne(
+        { betPda: betPubkey.toBase58() },
+        { projection: { _id: 0, validation: 1, sport: 1 } },
+      );
+      if (linkedBet?.validation === "sports" && isSupportedSport(linkedBet.sport)) {
+        sport = linkedBet.sport;
+      }
+    }
 
     let result;
     try {
       result = await fetchGameResult(sport, gameId);
     } catch (err) {
-      console.error(`scrape error for game ${gameId} (${sport}):`, err);
+      console.error(`sports data fetch error for game ${gameId} (${sport}):`, err);
       continue;
     }
 
@@ -463,7 +490,6 @@ async function crankSportsBets(): Promise<void> {
 
       // Mirror the on-chain result back to the chat bet doc so the UI updates.
       // The challenger is the on-chain creator; they back home iff creatorBacksHome.
-      const betsCol = await bets();
       if (betsCol) {
         const resolvedWinner =
           result.homeWon === null
@@ -519,7 +545,7 @@ async function crankWitnessBets(): Promise<void> {
     const vault = sportsVaultPda(betPubkey);
 
     if ("locked" in acct.state) {
-      // Sports bets are settled from the ESPN scraper by crankSportsBets, not votes.
+      // Sports bets are settled from sports feeds by crankSportsBets, not votes.
       if (bet.validation === "sports") continue;
       if (!bet.resolvedWinner || !acct.opponent) continue;
       if (acct.settleAfter.toNumber() > now) continue;
@@ -693,14 +719,14 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, { commitmentId: body.commitmentId, signature, explorer: explorerUrl(signature) });
     }
 
-    // GET /scoreboard?sport=nba|nfl|soccer[&league=worldcup]
+    // GET /scoreboard?sport=nba|nfl|nhl|soccer[&league=epl|laliga|mls|<leagueId>]
     // Returns upcoming games currently in the sports-bet creation window.
     if (req.method === "GET" && req.url?.startsWith("/scoreboard")) {
       const params = new URL(req.url, "http://x").searchParams;
       const sport  = (params.get("sport") ?? "nba") as Sport;
       const league = params.get("league") ?? undefined;
-      if (!["soccer", "nba", "nfl"].includes(sport))
-        return json(res, 400, { error: "sport must be soccer | nba | nfl" });
+      if (!isSupportedSport(sport))
+        return json(res, 400, { error: "sport must be soccer | nba | nfl | nhl" });
       const nowMs = Date.now();
       const betWindowEndMs = nowMs + SPORTS_BET_CREATE_WINDOW_SECS * 1000;
       const scrapedGames = await fetchScoreboard(sport, league, {
@@ -726,6 +752,9 @@ const server = http.createServer(async (req, res) => {
       const sport  = (params.get("sport") ?? "nba") as Sport;
       const gameId = params.get("id") ?? "";
       if (!gameId) return json(res, 400, { error: "id is required" });
+      if (!isSupportedSport(sport)) {
+        return json(res, 400, { error: "sport must be soccer | nba | nfl | nhl" });
+      }
       const result = await fetchGameResult(sport, gameId);
       return json(res, 200, { result });
     }
@@ -970,11 +999,11 @@ const server = http.createServer(async (req, res) => {
       // All bets are on-chain SOL now (POINTS bets were scrapped).
       const currency = "SOL";
 
-      // DEV "sports" bets are settled by the ESPN scraper rather than witness votes.
-      // They carry a sport + numeric ESPN game id + which side the challenger backs.
+      // DEV "sports" bets are settled by sports feed data rather than witness votes.
+      // They carry a sport + numeric event id + which side the challenger backs.
       const isSports = type === "DEV" && typeof body.sport === "string" && body.sport.length > 0;
-      const sport = isSports ? (body.sport as string) : null;
-      const espnGameId = isSports ? `${body.gameId ?? ""}`.trim() : "";
+      const sport = isSports ? (body.sport as Sport) : null;
+      const sportsGameId = isSports ? `${body.gameId ?? ""}`.trim() : "";
       const challengerBacksHome = isSports ? body.backsHome !== false : undefined;
       let homeTeam = isSports ? `${body.homeTeam ?? ""}`.trim() : undefined;
       let awayTeam = isSports ? `${body.awayTeam ?? ""}`.trim() : undefined;
@@ -997,34 +1026,35 @@ const server = http.createServer(async (req, res) => {
       }
       const amountLamports = solStakeToLamports(stakeInput);
       if (isSports) {
-        if (!SPORT_NAMES.includes(sport as Sport)) {
-          return json(res, 400, { error: "sport must be soccer | nba | nfl" });
+        if (!isSupportedSport(sport)) {
+          return json(res, 400, { error: "sport must be soccer | nba | nfl | nhl" });
         }
+        const sportsSport = sport;
         // crankSportsBets only settles bets whose on-chain game id is numeric.
-        if (!/^\d+$/.test(espnGameId)) {
-          return json(res, 400, { error: "gameId must be a numeric ESPN game id" });
+        if (!/^\d+$/.test(sportsGameId)) {
+          return json(res, 400, { error: "gameId must be a numeric TheSportsDB event id" });
         }
         let upcomingGames: Awaited<ReturnType<typeof fetchScoreboard>> = [];
         try {
-          upcomingGames = await fetchScoreboard(sport as Sport, undefined, {
+          upcomingGames = await fetchScoreboard(sportsSport, undefined, {
             daysAhead: SPORTS_BET_SCOREBOARD_LOOKAHEAD_DAYS,
             includeStarted: true,
             maxGames: 200,
           });
         } catch (err) {
           return json(res, 502, {
-            error: `failed to scrape upcoming games: ${err instanceof Error ? err.message : String(err)}`,
+            error: `failed to fetch upcoming games: ${err instanceof Error ? err.message : String(err)}`,
           });
         }
-        const selectedGame = upcomingGames.find((game) => game.gameId === espnGameId);
+        const selectedGame = upcomingGames.find((game) => game.gameId === sportsGameId);
         if (!selectedGame) {
-          return json(res, 400, { error: "selected game is not available on the upcoming ESPN board" });
+          return json(res, 400, { error: "selected game is not available on the upcoming board" });
         }
         if (selectedGame.isFinal) {
           return json(res, 400, { error: "selected game is already final" });
         }
         if (typeof selectedGame.startTimeMs !== "number" || !Number.isFinite(selectedGame.startTimeMs)) {
-          return json(res, 400, { error: "selected game kickoff time is unavailable from ESPN" });
+          return json(res, 400, { error: "selected game kickoff time is unavailable" });
         }
         const chainNowSec = await currentUnixTimeSec();
         const kickoffSec = Math.floor(selectedGame.startTimeMs / 1000);
@@ -1040,11 +1070,11 @@ const server = http.createServer(async (req, res) => {
         homeTeam = selectedGame.homeTeam?.trim() || homeTeam;
         awayTeam = selectedGame.awayTeam?.trim() || awayTeam;
         if (!homeTeam || !awayTeam) {
-          return json(res, 400, { error: "selected game teams are unavailable from ESPN" });
+          return json(res, 400, { error: "selected game teams are unavailable" });
         }
         if (terms.length < 8) {
           const backedTeam = challengerBacksHome ? homeTeam : awayTeam;
-          terms = `${sport?.toUpperCase()}: ${awayTeam} @ ${homeTeam} — ${challenger} backs ${backedTeam}.`;
+          terms = `${sportsSport.toUpperCase()}: ${awayTeam} @ ${homeTeam} — ${challenger} backs ${backedTeam}.`;
         }
       }
       if (terms.length < 8) {
@@ -1135,7 +1165,7 @@ const server = http.createServer(async (req, res) => {
         ...(isSports ? {
           validation: "sports" as const,
           sport: sport as BetDoc["sport"],
-          espnGameId,
+          espnGameId: sportsGameId,
           homeTeam,
           awayTeam,
           challengerBacksHome,
@@ -1155,10 +1185,10 @@ const server = http.createServer(async (req, res) => {
           }
           const startTime = sportsKickoffSec;
           const settleAfter = startTime + Math.max(1, SPORTS_BET_SETTLE_AFTER_SECS);
-          // Sports bets store the real numeric ESPN game id so crankSportsBets settles them.
-          const onChainSport = SPORT_NAMES.indexOf(sport as Sport);
+          // Sports bets store the real numeric event id so crankSportsBets settles them.
+          const onChainSport = ON_CHAIN_SPORT_INDEX[sport as Sport];
           const backsHome    = challengerBacksHome ?? true;
-          const gid = gameIdBytes(espnGameId);
+          const gid = gameIdBytes(sportsGameId);
           const betPda = sportsBetPda(challengerKp.publicKey, gid);
           const vault = sportsVaultPda(betPda);
           const sig = await programAs(challengerKp)
@@ -1459,7 +1489,7 @@ const server = http.createServer(async (req, res) => {
       }
       if (current.validation === "sports") {
         return json(res, 409, {
-          error: "sports bets are settled by the ESPN result, not witness votes",
+          error: "sports bets are settled by the official sports feed result, not witness votes",
           bet: current,
         });
       }

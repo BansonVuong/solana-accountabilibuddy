@@ -2,13 +2,14 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
-  MessageSquare, Shield, BarChart3,
+  MessageSquare, Shield, BarChart3, Trophy,
   Zap, Sun, Moon, Bell, ChevronRight, Copy, Check
 } from "lucide-react";
 import { Mono, Avatar, Pill } from "./components/ui";
 import { ChatView }        from "./components/ChatView";
 import { EscrowView }      from "./components/EscrowView";
 import { LeaderboardView } from "./components/LeaderboardView";
+import { SportsView } from "./components/SportsView";
 import { useRelayerHealth } from "../lib/useRelayer";
 import {
   AUTH_TOKEN_STORAGE_KEY,
@@ -30,7 +31,7 @@ import {
 } from "../lib/groupNotifications";
 
 /* ── Navigation config ─────────────────────────────────── */
-type ViewId = "chat" | "escrow" | "leaderboard";
+type ViewId = "chat" | "sports" | "escrow" | "leaderboard";
 
 const NAV: {
   id:       ViewId;
@@ -40,6 +41,7 @@ const NAV: {
   badge?:   string | undefined;
 }[] = [
   { id:"chat",        label:"Group Chat",   sublabel:"Lobby & Bets",     Icon:MessageSquare },
+  { id:"sports",      label:"Sports",       sublabel:"Browse & Place",   Icon:Trophy },
   { id:"escrow",      label:"Escrow Card",  sublabel:"P2P Wager Mode",   Icon:Shield },
   { id:"leaderboard", label:"Leaderboard",  sublabel:"Rankings & Stats", Icon:BarChart3 },
 ];
@@ -796,6 +798,12 @@ export default function App() {
                   requestedGroupId={chatSelectionRequest?.groupId}
                   requestedBetId={chatSelectionRequest?.betId}
                   requestedGroupToken={chatSelectionRequest?.token}
+                />
+              )}
+              {activeView === "sports"      && (
+                <SportsView
+                  currentUser={authUser}
+                  onOpenBetChat={openBetInChat}
                 />
               )}
               {activeView === "escrow"      && <EscrowView onOpenBetChat={openBetInChat} />}
