@@ -31,7 +31,7 @@ import { fetchGameResult, fetchScoreboard, type Sport } from "./scraper";
 import {
   isDbConfigured, groups, messages, bets, players, profiles, users, imessageConversations, discordConversations, type GroupDoc, type MessageDoc, type ProfileDoc, type UserDoc, type BetDoc, type IMessageConversationDoc, type DiscordConversationDoc,
 } from "./db";
-import { startDiscordBot } from "./discord";
+import { startDiscordBot, verifyDiscordLinkCode } from "./discord";
 import idl from "./generated/accountability.json";
 import type { Accountability } from "./generated/accountability";
 
@@ -991,6 +991,44 @@ const server = http.createServer(async (req, res) => {
       if (!col) return dbUnconfigured(res);
       await col.updateOne({ id: authUser.id }, { $unset: { discordId: "" } });
       return json(res, 200, { unlinked: true });
+    }
+
+    // POST /discord/link  — complete a Discord link started from the bot's /setup.
+    // Body: { code }  — a signed, short-lived link code minted by the Discord bot.
+    // The authenticated account gets the code's Discord id attached.
+    if (req.method === "POST" && req.url === "/discord/link") {
+      const authUser = await getAuthenticatedUser(req);
+      if (!authUser) return json(res, 401, { error: "unauthorized" });
+      const body = await readJson(req);
+      const code = typeof body.code === "string" ? body.code : "";
+      const payload = verifyDiscordLinkCode(code);
+      if (!payload) return json(res, 400, { error: "invalid or expired link code" });
+
+      const col = await users();
+      if (!col) return dbUnconfigured(res);
+
+      const claimedBy = await col.findOne({ discordId: payload.discordId, id: { $ne: authUser.id } });
+      if (claimedBy) {
+        return json(res, 409, {
+          error: "This Discord account is already linked to another AccountabiliBuddy account.",
+        });
+      }
+      if (authUser.discordId && authUser.discordId !== payload.discordId) {
+        return json(res, 409, {
+          error: "Your account is already linked to a different Discord account.",
+        });
+      }
+
+      await col.updateOne({ id: authUser.id }, { $set: { discordId: payload.discordId } });
+      return json(res, 200, {
+        linked: true,
+        username: authUser.username,
+        discordUsername: payload.discordUsername,
+        returnUrl:
+          payload.guildId && payload.channelId
+            ? `https://discord.com/channels/${payload.guildId}/${payload.channelId}`
+            : "https://discord.com/channels/@me",
+      });
     }
 
     // GET /discord/bets/:id  — compact bet card payload for Discord rendering

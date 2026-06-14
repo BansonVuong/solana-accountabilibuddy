@@ -16,9 +16,11 @@ import {
   getCurrentAuthUser,
   getGroups,
   getProfileSummary,
+  linkDiscord,
   loginWithEmail,
   signupWithEmail,
   type AuthUser,
+  type DiscordLinkResult,
   type ProfileSummary,
 } from "../lib/relayer";
 import {
@@ -119,6 +121,12 @@ export default function App() {
     username: "",
     password: "",
   });
+  // Discord linking, initiated from the bot's /setup via ?discord_link=<code>.
+  const [discordLinkCode, setDiscordLinkCode] = useState<string | null>(null);
+  const [discordLinkStatus, setDiscordLinkStatus] =
+    useState<"idle" | "pending" | "done" | "error">("idle");
+  const [discordLinkResult, setDiscordLinkResult] = useState<DiscordLinkResult | null>(null);
+  const [discordLinkError, setDiscordLinkError] = useState<string | null>(null);
   const chatSeenUpdatedAtByGroupRef = useRef<Record<string, number>>({});
   const previousViewRef = useRef<ViewId>("chat");
 
@@ -126,6 +134,43 @@ export default function App() {
   useEffect(() => {
     document.documentElement.classList.toggle("dark", dark);
   }, [dark]);
+
+  /* Capture a Discord link code from the URL (?discord_link=...) and strip it
+     from the address bar so it can't be re-used or shared by accident. */
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get("discord_link");
+    if (!code) return;
+    setDiscordLinkCode(code);
+    params.delete("discord_link");
+    const query = params.toString();
+    window.history.replaceState(
+      {},
+      "",
+      `${window.location.pathname}${query ? `?${query}` : ""}${window.location.hash}`,
+    );
+  }, []);
+
+  /* Once signed in with a pending link code, attach this account to Discord. */
+  useEffect(() => {
+    if (!authUser || !discordLinkCode || discordLinkStatus !== "idle") return;
+    let alive = true;
+    setDiscordLinkStatus("pending");
+    setDiscordLinkError(null);
+    linkDiscord(discordLinkCode)
+      .then((result) => {
+        if (!alive) return;
+        setDiscordLinkResult(result);
+        setDiscordLinkStatus("done");
+      })
+      .catch((err) => {
+        if (!alive) return;
+        setDiscordLinkError(err instanceof Error ? err.message : String(err));
+        setDiscordLinkStatus("error");
+      });
+    return () => { alive = false; };
+  }, [authUser, discordLinkCode, discordLinkStatus]);
 
   useEffect(() => {
     let alive = true;
@@ -355,6 +400,13 @@ export default function App() {
     setAuthMode("login");
   }
 
+  function dismissDiscordLink(): void {
+    setDiscordLinkCode(null);
+    setDiscordLinkStatus("idle");
+    setDiscordLinkResult(null);
+    setDiscordLinkError(null);
+  }
+
   async function toggleProfile(): Promise<void> {
     const nextOpen = !profileOpen;
     setProfileOpen(nextOpen);
@@ -411,6 +463,22 @@ export default function App() {
           className="w-full max-w-sm rounded-2xl border border-border p-5"
           style={{ background: "var(--card)" }}
         >
+          {discordLinkCode && (
+            <div
+              className="mb-4 rounded-lg border px-3 py-2.5"
+              style={{ borderColor: "#5865F2", background: "rgba(88,101,242,0.12)" }}
+            >
+              <p style={{ fontSize: "12px", fontWeight: 600, color: "#5865F2" }}>
+                Linking your Discord account
+              </p>
+              <p className="text-muted-foreground mt-0.5" style={{ fontSize: "11px" }}>
+                {authMode === "signup"
+                  ? "Create an account (or sign in) and we'll connect it to Discord automatically."
+                  : "Sign in (or create an account) and we'll connect it to Discord automatically."}
+              </p>
+            </div>
+          )}
+
           <div className="mb-4">
             <p className="text-foreground" style={{ fontSize: "20px", fontWeight: 700 }}>
               {authMode === "signup" ? "Create account" : "Sign in"}
@@ -484,6 +552,67 @@ export default function App() {
             {authMode === "signup" ? "Already have an account? Sign in" : "Need an account? Sign up"}
           </button>
         </form>
+      </div>
+    );
+  }
+
+  if (discordLinkCode && discordLinkStatus !== "idle") {
+    const linked = discordLinkStatus === "done";
+    const failed = discordLinkStatus === "error";
+    return (
+      <div
+        className="min-h-screen flex items-center justify-center px-4"
+        style={{ background: "var(--background)", fontFamily: "'Inter', -apple-system, sans-serif" }}
+      >
+        <div
+          className="w-full max-w-sm rounded-2xl border border-border p-6 text-center"
+          style={{ background: "var(--card)" }}
+        >
+          <div
+            className="mx-auto mb-4 w-12 h-12 rounded-full flex items-center justify-center"
+            style={{ background: failed ? "rgba(255,74,74,0.15)" : "rgba(88,101,242,0.15)" }}
+          >
+            {linked ? (
+              <Check size={22} style={{ color: "#14F195" }} />
+            ) : failed ? (
+              <span style={{ color: "#FF4A4A", fontSize: "20px", fontWeight: 700 }}>!</span>
+            ) : (
+              <Zap size={22} style={{ color: "#5865F2" }} />
+            )}
+          </div>
+
+          <p className="text-foreground" style={{ fontSize: "18px", fontWeight: 700 }}>
+            {linked ? "Discord linked!" : failed ? "Couldn't link Discord" : "Linking Discord…"}
+          </p>
+          <p className="text-muted-foreground mt-1.5" style={{ fontSize: "12px" }}>
+            {linked
+              ? `Your account @${discordLinkResult?.username ?? authUser.username} is now connected. Head back to Discord and use /bet create.`
+              : failed
+                ? discordLinkError ?? "Something went wrong. Please try /setup again in Discord."
+                : "Connecting your AccountabiliBuddy account to Discord."}
+          </p>
+
+          {linked && discordLinkResult?.returnUrl && (
+            <a
+              href={discordLinkResult.returnUrl}
+              className="mt-5 block w-full px-3 py-2 rounded-lg text-white transition-opacity"
+              style={{ background: "#5865F2", fontSize: "13px", fontWeight: 600 }}
+            >
+              Return to Discord
+            </a>
+          )}
+
+          {(linked || failed) && (
+            <button
+              type="button"
+              onClick={dismissDiscordLink}
+              className="mt-3 w-full text-muted-foreground hover:text-foreground transition-colors"
+              style={{ fontSize: "12px" }}
+            >
+              {linked ? "Continue to dashboard" : "Dismiss"}
+            </button>
+          )}
+        </div>
       </div>
     );
   }

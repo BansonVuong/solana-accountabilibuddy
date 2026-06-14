@@ -128,6 +128,26 @@ export function getCurrentAuthUser(): Promise<{ user: AuthUser }> {
   return req<{ user: AuthUser }>("/auth/me");
 }
 
+export interface DiscordLinkResult {
+  linked: boolean;
+  username: string;
+  discordUsername?: string;
+  /** Deep link back to the Discord channel/DM the link was started from. */
+  returnUrl?: string | null;
+}
+
+/**
+ * Complete a Discord account link begun from the bot's `/setup` command.
+ * `code` is the signed token carried in the `?discord_link=` query parameter.
+ * Requires an authenticated session (Bearer token in localStorage).
+ */
+export function linkDiscord(code: string): Promise<DiscordLinkResult> {
+  return req<DiscordLinkResult>("/discord/link", {
+    method: "POST",
+    body: JSON.stringify({ code }),
+  });
+}
+
 export interface ProfileSummary {
   name: string;
   initials: string;

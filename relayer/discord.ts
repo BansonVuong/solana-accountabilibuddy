@@ -13,14 +13,18 @@
 //   /bet list      — list active bets you're involved in
 //   /bet status    — show the card for a specific bet
 //
+// Account linking happens in the web app: /setup hands the user a one-time,
+// signed link code embedded in a URL button. They sign in (or sign up) on the
+// web app, which calls POST /discord/link to attach their Discord id, then
+// offers a button back to the channel. No credentials are ever typed into
+// Discord.
+//
 // Buttons (encoded in customId):
 //   accept:<betId>              — accept a pending bet
 //   vote_challenger:<betId>     — vote that challenger won
 //   vote_acceptor:<betId>       — vote that acceptor won
 //
 // Modals:
-//   modal_link                  — email + password to link existing account
-//   modal_signup                — email + username + password for new account
 //   modal_bet_create            — terms + stake + opponent discord username
 
 import {
@@ -167,17 +171,6 @@ async function handleSetupCommand(interaction: ChatInputCommandInteraction): Pro
     return;
   }
 
-  const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
-    new ButtonBuilder()
-      .setCustomId("open_link_modal")
-      .setLabel("Link existing account")
-      .setStyle(ButtonStyle.Primary),
-    new ButtonBuilder()
-      .setCustomId("open_signup_modal")
-      .setLabel("Create new account")
-      .setStyle(ButtonStyle.Secondary),
-  );
-
   await interaction.reply({
     embeds: [
       new EmbedBuilder()
@@ -185,12 +178,32 @@ async function handleSetupCommand(interaction: ChatInputCommandInteraction): Pro
         .setTitle("Welcome to AccountabiliBuddy")
         .setDescription(
           "Put your SOL on the line. Make bets with friends and let the blockchain hold everyone accountable.\n\n" +
-          "Link your account or create a new one to get started.",
+          "Click below to open AccountabiliBuddy, sign in (or create an account), and your Discord will be linked automatically. Then come back and use `/bet create`.",
         ),
     ],
-    components: [row],
+    components: [buildLinkButtonRow(interaction)],
     ephemeral: true,
   });
+}
+
+// Builds the URL button that sends the user to the web app with a signed,
+// short-lived link code. The web app completes the link via POST /discord/link.
+function buildLinkButtonRow(
+  interaction: ChatInputCommandInteraction,
+): ActionRowBuilder<ButtonBuilder> {
+  const code = signDiscordLinkCode({
+    discordId: interaction.user.id,
+    discordUsername: interaction.user.username,
+    guildId: interaction.guildId,
+    channelId: interaction.channelId,
+  });
+  const url = `${WEB_BASE_URL}/?discord_link=${encodeURIComponent(code)}`;
+  return new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder()
+      .setLabel("Link with AccountabiliBuddy")
+      .setStyle(ButtonStyle.Link)
+      .setURL(url),
+  );
 }
 
 // ── /bet subcommands ──────────────────────────────────────────────────────────
@@ -315,64 +328,6 @@ async function handleCommand(interaction: ChatInputCommandInteraction): Promise<
 async function handleButton(interaction: ButtonInteraction): Promise<void> {
   const { customId } = interaction;
 
-  if (customId === "open_link_modal") {
-    const modal = new ModalBuilder()
-      .setCustomId("modal_link")
-      .setTitle("Link AccountabiliBuddy Account");
-    modal.addComponents(
-      new ActionRowBuilder<TextInputBuilder>().addComponents(
-        new TextInputBuilder()
-          .setCustomId("email")
-          .setLabel("Email")
-          .setStyle(TextInputStyle.Short)
-          .setRequired(true),
-      ),
-      new ActionRowBuilder<TextInputBuilder>().addComponents(
-        new TextInputBuilder()
-          .setCustomId("password")
-          .setLabel("Password")
-          .setStyle(TextInputStyle.Short)
-          .setRequired(true),
-      ),
-    );
-    await interaction.showModal(modal);
-    return;
-  }
-
-  if (customId === "open_signup_modal") {
-    const modal = new ModalBuilder()
-      .setCustomId("modal_signup")
-      .setTitle("Create AccountabiliBuddy Account");
-    modal.addComponents(
-      new ActionRowBuilder<TextInputBuilder>().addComponents(
-        new TextInputBuilder()
-          .setCustomId("email")
-          .setLabel("Email")
-          .setStyle(TextInputStyle.Short)
-          .setRequired(true),
-      ),
-      new ActionRowBuilder<TextInputBuilder>().addComponents(
-        new TextInputBuilder()
-          .setCustomId("username")
-          .setLabel("Username (3-24 chars: letters, numbers, _-. )")
-          .setStyle(TextInputStyle.Short)
-          .setMinLength(3)
-          .setMaxLength(24)
-          .setRequired(true),
-      ),
-      new ActionRowBuilder<TextInputBuilder>().addComponents(
-        new TextInputBuilder()
-          .setCustomId("password")
-          .setLabel("Password (min 8 characters)")
-          .setStyle(TextInputStyle.Short)
-          .setMinLength(8)
-          .setRequired(true),
-      ),
-    );
-    await interaction.showModal(modal);
-    return;
-  }
-
   if (customId.startsWith("accept:")) {
     const betId = customId.slice("accept:".length);
     await handleAcceptBet(interaction, betId);
@@ -395,120 +350,9 @@ async function handleButton(interaction: ButtonInteraction): Promise<void> {
 // ── modal submit handler ──────────────────────────────────────────────────────
 
 async function handleModal(interaction: ModalSubmitInteraction): Promise<void> {
-  if (interaction.customId === "modal_link") {
-    await handleLinkModal(interaction);
-  } else if (interaction.customId === "modal_signup") {
-    await handleSignupModal(interaction);
-  } else if (interaction.customId === "modal_bet_create") {
+  if (interaction.customId === "modal_bet_create") {
     await handleBetCreateModal(interaction);
   }
-}
-
-// ── modal: link existing account ──────────────────────────────────────────────
-
-async function handleLinkModal(interaction: ModalSubmitInteraction): Promise<void> {
-  await interaction.deferReply({ ephemeral: true });
-
-  const email = interaction.fields.getTextInputValue("email").trim().toLowerCase();
-  const password = interaction.fields.getTextInputValue("password");
-
-  const col = await users();
-  if (!col) {
-    await interaction.editReply("Database not available. Please try again later.");
-    return;
-  }
-
-  const user = await col.findOne({ emailLower: email });
-  if (!user || !verifyPassword(password, user.passwordHash)) {
-    await interaction.editReply("Invalid email or password. Please try again.");
-    return;
-  }
-
-  const alreadyLinked = await col.findOne({ discordId: interaction.user.id, id: { $ne: user.id } });
-  if (alreadyLinked) {
-    await interaction.editReply("This Discord account is already linked to another AccountabiliBuddy account.");
-    return;
-  }
-
-  if (user.discordId && user.discordId !== interaction.user.id) {
-    await interaction.editReply(
-      `**${user.username}** is already linked to a different Discord account. Contact support to unlink.`,
-    );
-    return;
-  }
-
-  await col.updateOne({ id: user.id }, { $set: { discordId: interaction.user.id } });
-
-  await interaction.editReply({
-    embeds: [
-      new EmbedBuilder()
-        .setColor(Colors.Green)
-        .setTitle("Account linked!")
-        .setDescription(`Your Discord is now linked to **${user.username}**.\n\nUse \`/bet create\` in any channel to post a bet!`),
-    ],
-  });
-}
-
-// ── modal: create new account ─────────────────────────────────────────────────
-
-async function handleSignupModal(interaction: ModalSubmitInteraction): Promise<void> {
-  await interaction.deferReply({ ephemeral: true });
-
-  const email = interaction.fields.getTextInputValue("email").trim();
-  const username = normalizeUsername(interaction.fields.getTextInputValue("username").trim());
-  const password = interaction.fields.getTextInputValue("password");
-
-  if (!username) {
-    await interaction.editReply("Invalid username. Use 3-24 characters: letters, numbers, underscore, dash, or dot.");
-    return;
-  }
-  if (password.length < 8) {
-    await interaction.editReply("Password must be at least 8 characters.");
-    return;
-  }
-
-  const emailLower = email.toLowerCase();
-  const col = await users();
-  if (!col) {
-    await interaction.editReply("Database not available. Please try again later.");
-    return;
-  }
-
-  const existing = await col.findOne({ $or: [{ emailLower }, { usernameLower: username.toLowerCase() }] });
-  if (existing?.emailLower === emailLower) {
-    await interaction.editReply("That email is already registered. Use 'Link existing account' instead.");
-    return;
-  }
-  if (existing?.usernameLower === username.toLowerCase()) {
-    await interaction.editReply("That username is already taken. Please choose a different one.");
-    return;
-  }
-
-  const now = Date.now();
-  const user: UserDoc = {
-    id: `u-${now}-${crypto.randomBytes(4).toString("hex")}`,
-    email,
-    emailLower,
-    username,
-    usernameLower: username.toLowerCase(),
-    passwordHash: hashPassword(password),
-    createdAt: now,
-    discordId: interaction.user.id,
-  };
-  await col.insertOne(user);
-
-  await interaction.editReply({
-    embeds: [
-      new EmbedBuilder()
-        .setColor(Colors.Green)
-        .setTitle("Account created!")
-        .setDescription(
-          `Welcome, **${username}**! Your AccountabiliBuddy account is linked to Discord.\n\n` +
-          `Your custodial Solana wallet will be provisioned on your first bet.\n\n` +
-          `Use \`/bet create\` to post your first bet!`,
-        ),
-    ],
-  });
 }
 
 // ── modal: create bet ─────────────────────────────────────────────────────────
@@ -861,27 +705,61 @@ async function getOrCreateDiscordConversation(
 
 const AUTH_SECRET_BOT = process.env.AUTH_SECRET ?? "dev-only-insecure-auth-secret";
 
-function hashPassword(password: string): string {
-  const salt = crypto.randomBytes(16).toString("hex");
-  const hash = crypto.scryptSync(password, salt, 64).toString("hex");
-  return `scrypt$${salt}$${hash}`;
+// ── Discord link codes ────────────────────────────────────────────────────────
+// Short-lived, HMAC-signed payload that the bot embeds in the web-app link URL.
+// The web app passes it back to POST /discord/link, which verifies it with the
+// same AUTH_SECRET and attaches the Discord id to the signed-in account.
+
+const LINK_CODE_TTL_MS = 15 * 60 * 1000; // 15 minutes
+
+export interface DiscordLinkCodePayload {
+  discordId: string;
+  discordUsername: string;
+  guildId: string | null;
+  channelId: string | null;
+  exp: number;
 }
 
-function verifyPassword(password: string, stored: string): boolean {
-  const [algo, salt, hash] = stored.split("$");
-  if (algo !== "scrypt" || !salt || !hash) return false;
+export function signDiscordLinkCode(input: {
+  discordId: string;
+  discordUsername: string;
+  guildId?: string | null;
+  channelId?: string | null;
+}): string {
+  const payload: DiscordLinkCodePayload = {
+    discordId: input.discordId,
+    discordUsername: input.discordUsername,
+    guildId: input.guildId ?? null,
+    channelId: input.channelId ?? null,
+    exp: Date.now() + LINK_CODE_TTL_MS,
+  };
+  const encoded = Buffer.from(JSON.stringify(payload)).toString("base64url");
+  const signature = crypto
+    .createHmac("sha256", AUTH_SECRET_BOT)
+    .update(`discord-link:${encoded}`)
+    .digest("base64url");
+  return `${encoded}.${signature}`;
+}
+
+export function verifyDiscordLinkCode(code: string): DiscordLinkCodePayload | null {
+  const [encoded, providedSignature] = code.split(".");
+  if (!encoded || !providedSignature) return null;
+  const expectedSignature = crypto
+    .createHmac("sha256", AUTH_SECRET_BOT)
+    .update(`discord-link:${encoded}`)
+    .digest("base64url");
+  const provided = Buffer.from(providedSignature);
+  const expected = Buffer.from(expectedSignature);
+  if (provided.length !== expected.length) return null;
+  if (!crypto.timingSafeEqual(provided, expected)) return null;
   try {
-    const candidate = crypto.scryptSync(password, salt, 64).toString("hex");
-    return crypto.timingSafeEqual(Buffer.from(hash, "hex"), Buffer.from(candidate, "hex"));
+    const payload = JSON.parse(Buffer.from(encoded, "base64url").toString("utf8")) as DiscordLinkCodePayload;
+    if (!payload?.discordId || typeof payload.discordId !== "string") return null;
+    if (!Number.isFinite(payload.exp) || payload.exp < Date.now()) return null;
+    return payload;
   } catch {
-    return false;
+    return null;
   }
-}
-
-function normalizeUsername(raw: string): string {
-  const trimmed = raw.trim();
-  if (!/^[a-zA-Z0-9_.\-]{3,24}$/.test(trimmed)) return "";
-  return trimmed;
 }
 
 // ── linked-user guards ────────────────────────────────────────────────────────
