@@ -454,7 +454,7 @@ function Message({
           <span className="text-foreground" style={{ fontSize: "13px", fontWeight: 600 }}>{msg.sender}</span>
           <Mono className="text-muted-foreground" style={{ fontSize: "10px" } as React.CSSProperties}>{timeLabel}</Mono>
         </div>
-        <p className="text-foreground/85 leading-relaxed" style={{ fontSize: "14px" }}>{msg.text}</p>
+        <p className="text-foreground/85 leading-relaxed break-words" style={{ fontSize: "14px" }}>{msg.text}</p>
       </div>
     </div>
   );
@@ -917,93 +917,109 @@ export function ChatView({
 
   return (
     <>
-      <div className="flex h-full rounded-2xl border border-border overflow-hidden" style={{ background: "var(--card)" }}>
-      <div className="w-64 flex flex-col shrink-0 border-r border-border" style={{ background: "var(--muted)" }}>
-        <div className="px-4 py-3 border-b border-border">
-          <Mono className="text-muted-foreground uppercase" style={{ fontSize: "9px", letterSpacing: "0.1em" } as React.CSSProperties}>
-            Group Chats
-          </Mono>
-        </div>
-
-        <div className="flex-1 overflow-y-auto py-1.5 space-y-0.5 px-1.5">
-          {groups.map((group) => (
+      <div
+        className="flex h-full min-h-0 flex-col overflow-hidden rounded-2xl border border-border md:flex-row"
+        style={{ background: "var(--card)" }}
+      >
+        <div
+          className="flex w-full flex-col border-b border-border md:w-64 md:shrink-0 md:border-b-0 md:border-r"
+          style={{ background: "var(--muted)" }}
+        >
+          <div className="flex items-center justify-between border-b border-border px-3 py-2.5 md:px-4 md:py-3">
+            <Mono className="text-muted-foreground uppercase" style={{ fontSize: "9px", letterSpacing: "0.1em" } as React.CSSProperties}>
+              Group Chats
+            </Mono>
             <button
-              key={group.id}
-              onClick={() => handleSelectGroup(group.id)}
-              className={`w-full flex items-center gap-2.5 px-2.5 py-2.5 rounded-xl text-left transition-all duration-150 ${
-                activeGroup === group.id ? "bg-primary/10" : "hover:bg-card"
-              }`}
+              onClick={() => openInputDialog({ type: "create-group" })}
+              className="inline-flex items-center gap-1 rounded-lg border border-dashed border-border px-2 py-1 text-muted-foreground transition-colors hover:border-primary/30 hover:text-primary md:hidden"
+              style={{ fontSize: "10px" }}
             >
-              <div className="relative shrink-0">
-                <Avatar initials={group.initials} size={34} />
-                {group.pendingBet && (
-                  <span
-                    className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-card"
-                    style={{ background: "#FFB800" }}
-                  />
-                )}
-              </div>
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center justify-between gap-1">
-                  <span
-                    className={`truncate ${activeGroup === group.id ? "text-primary" : "text-foreground"}`}
-                    style={{ fontSize: "12px", fontWeight: 600 }}
-                  >
-                    {group.name}
-                  </span>
-                  <div className="flex items-center gap-1 shrink-0">
-                    {unreadByGroup[group.id] > 0 && activeGroup !== group.id && (
-                      <span
-                        className="min-w-4 h-4 px-1 rounded-full flex items-center justify-center text-[9px] font-bold"
-                        style={{ background: "#FF4A4A", color: "#fff" }}
-                      >
-                        {unreadByGroup[group.id] > 99 ? "99+" : unreadByGroup[group.id]}
-                      </span>
-                    )}
-                    <Mono className="text-muted-foreground shrink-0" style={{ fontSize: "9px" } as React.CSSProperties}>
-                      {formatChatTime(group.updatedAt, group.time)}
-                    </Mono>
-                  </div>
-                </div>
-                <div className="flex items-center gap-1 mt-0.5">
-                  <Users size={9} className="text-muted-foreground shrink-0" />
-                  <span className="text-muted-foreground truncate" style={{ fontSize: "11px" }}>
-                    {group.members} · {group.lastMsg}
-                  </span>
-                </div>
-              </div>
+              <Plus size={10} />
+              New
             </button>
-          ))}
-          {!loading && groups.length === 0 && (
-            <p className="px-2 py-2 text-muted-foreground" style={{ fontSize: "11px" }}>
-              No groups yet — create one to start chatting.
-            </p>
-          )}
+          </div>
+
+          <div className="flex-1 overflow-x-auto overflow-y-hidden px-2 py-2 md:overflow-x-hidden md:overflow-y-auto md:px-1.5 md:py-1.5">
+            <div className="flex gap-2 md:block md:space-y-0.5">
+              {groups.map((group) => (
+                <button
+                  key={group.id}
+                  onClick={() => handleSelectGroup(group.id)}
+                  className={`flex w-[230px] shrink-0 items-center gap-2.5 rounded-xl px-2.5 py-2.5 text-left transition-all duration-150 md:w-full md:shrink ${
+                    activeGroup === group.id ? "bg-primary/10" : "hover:bg-card"
+                  }`}
+                >
+                  <div className="relative shrink-0">
+                    <Avatar initials={group.initials} size={34} />
+                    {group.pendingBet && (
+                      <span
+                        className="absolute -top-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-card"
+                        style={{ background: "#FFB800" }}
+                      />
+                    )}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center justify-between gap-1">
+                      <span
+                        className={`truncate ${activeGroup === group.id ? "text-primary" : "text-foreground"}`}
+                        style={{ fontSize: "12px", fontWeight: 600 }}
+                      >
+                        {group.name}
+                      </span>
+                      <div className="flex items-center gap-1 shrink-0">
+                        {unreadByGroup[group.id] > 0 && activeGroup !== group.id && (
+                          <span
+                            className="flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[9px] font-bold"
+                            style={{ background: "#FF4A4A", color: "#fff" }}
+                          >
+                            {unreadByGroup[group.id] > 99 ? "99+" : unreadByGroup[group.id]}
+                          </span>
+                        )}
+                        <Mono className="text-muted-foreground shrink-0" style={{ fontSize: "9px" } as React.CSSProperties}>
+                          {formatChatTime(group.updatedAt, group.time)}
+                        </Mono>
+                      </div>
+                    </div>
+                    <div className="mt-0.5 flex items-center gap-1">
+                      <Users size={9} className="shrink-0 text-muted-foreground" />
+                      <span className="truncate text-muted-foreground" style={{ fontSize: "11px" }}>
+                        {group.members} · {group.lastMsg}
+                      </span>
+                    </div>
+                  </div>
+                </button>
+              ))}
+            </div>
+            {!loading && groups.length === 0 && (
+              <p className="px-2 py-2 text-muted-foreground" style={{ fontSize: "11px" }}>
+                No groups yet — create one to start chatting.
+              </p>
+            )}
+          </div>
+
+          <div className="hidden border-t border-border p-2 md:block">
+            <button
+              onClick={() => openInputDialog({ type: "create-group" })}
+              className="w-full flex items-center justify-center gap-1.5 py-2 rounded-xl border border-dashed border-border text-muted-foreground hover:text-primary hover:border-primary/30 transition-colors"
+              style={{ fontSize: "11px" }}
+            >
+              <Hash size={11} /> New Group
+            </button>
+          </div>
         </div>
 
-        <div className="p-2 border-t border-border">
-          <button
-            onClick={() => openInputDialog({ type: "create-group" })}
-            className="w-full flex items-center justify-center gap-1.5 py-2 rounded-xl border border-dashed border-border text-muted-foreground hover:text-primary hover:border-primary/30 transition-colors"
-            style={{ fontSize: "11px" }}
-          >
-            <Hash size={11} /> New Group
-          </button>
-        </div>
-      </div>
-
-      <div className="flex-1 flex flex-col min-w-0">
-        <div className="flex items-center justify-between px-5 py-3 border-b border-border shrink-0">
+        <div className="flex min-h-0 flex-1 flex-col min-w-0">
+          <div className="flex shrink-0 flex-col gap-2 border-b border-border px-3 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5">
           <button
             type="button"
             onClick={() => setShowCompletedBets((value) => !value)}
             disabled={!activeGroupData}
-            className="flex items-center gap-3 text-left disabled:cursor-not-allowed"
+            className="flex w-full items-center gap-3 text-left disabled:cursor-not-allowed sm:w-auto"
           >
             <Avatar initials={activeGroupData?.initials ?? "NA"} size={36} />
-            <div>
+            <div className="min-w-0">
               <div className="flex items-center gap-2">
-                <p className="text-foreground" style={{ fontSize: "14px", fontWeight: 700 }}>
+                <p className="truncate text-foreground" style={{ fontSize: "14px", fontWeight: 700 }}>
                   {activeGroupData?.name ?? "No group selected"}
                 </p>
                 <ChevronRight
@@ -1011,7 +1027,7 @@ export function ChatView({
                   className={`text-muted-foreground transition-transform ${showCompletedBets ? "rotate-90" : ""}`}
                 />
                 {activeGroupData && (
-                  <Pill color="muted">
+                  <Pill color="muted" className="hidden sm:inline-flex">
                     <CheckCircle2 size={8} />
                     {completedBets.length} COMPLETE
                   </Pill>
@@ -1022,8 +1038,14 @@ export function ChatView({
                 {activeGroupData ? `${activeGroupData.members} members · live` : "Create or select a group"}
               </p>
             </div>
+            {activeGroupData && (
+              <Pill color="muted" className="sm:hidden">
+                <CheckCircle2 size={8} />
+                {completedBets.length} DONE
+              </Pill>
+            )}
           </button>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
             <button
               onClick={() => openInputDialog({ type: "add-member", groupName: activeGroupData.name })}
               disabled={!activeGroupData}
@@ -1043,12 +1065,17 @@ export function ChatView({
               Leave
             </button>
             {activeGroupData && (
-              <Pill color={unresolvedBetCount > 0 ? "amber" : "muted"}>
-                {unresolvedBetCount > 0 ? <AlertTriangle size={8} /> : <CheckCircle2 size={8} />}
-                {unresolvedBetCount} OPEN BET{unresolvedBetCount === 1 ? "" : "S"}
-              </Pill>
+              <>
+                <Pill color={unresolvedBetCount > 0 ? "amber" : "muted"} className="hidden sm:inline-flex">
+                  {unresolvedBetCount > 0 ? <AlertTriangle size={8} /> : <CheckCircle2 size={8} />}
+                  {unresolvedBetCount} OPEN BET{unresolvedBetCount === 1 ? "" : "S"}
+                </Pill>
+                <Pill color={unresolvedBetCount > 0 ? "amber" : "muted"} className="sm:hidden">
+                  {unresolvedBetCount} OPEN
+                </Pill>
+              </>
             )}
-            <Pill color="amber">
+            <Pill color="amber" className="hidden md:inline-flex">
               <AlertTriangle size={8} />
               {refreshError ? "SYNC ERROR" : "LIVE SYNC"}
             </Pill>
@@ -1061,7 +1088,7 @@ export function ChatView({
               animate={{ opacity: 1, height: "auto" }}
               exit={{ opacity: 0, height: 0 }}
               transition={{ duration: 0.18 }}
-              className="px-5 py-3 border-b border-border shrink-0 overflow-hidden"
+              className="overflow-hidden border-b border-border px-3 py-3 shrink-0 sm:px-5"
             >
               <div className="rounded-xl border border-border bg-card/80 p-3 space-y-2">
                 <p className="text-muted-foreground" style={{ fontSize: "11px", fontWeight: 600 }}>
@@ -1103,7 +1130,7 @@ export function ChatView({
           )}
         </AnimatePresence>
 
-        <div ref={messageListRef} className="flex-1 overflow-y-auto px-5 py-5 space-y-5">
+        <div ref={messageListRef} className="flex-1 overflow-y-auto px-3 py-3 space-y-4 sm:px-5 sm:py-5 sm:space-y-5">
           {!activeGroup && (
             <div className="h-full flex items-center justify-center">
               <Mono className="text-muted-foreground" style={{ fontSize: "11px" } as React.CSSProperties}>
@@ -1138,14 +1165,17 @@ export function ChatView({
           <div ref={bottomRef} />
         </div>
 
-        <div className="px-5 py-3.5 border-t border-border shrink-0">
-          <div className="flex items-center gap-2">
+        <div
+          className="border-t border-border px-3 py-3 shrink-0 sm:px-5 sm:py-3.5"
+          style={{ background: "var(--card)", paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))" }}
+        >
+          <div className="flex flex-col items-stretch gap-2 sm:flex-row sm:items-center">
             <motion.button
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.93 }}
               onClick={() => setBetModalOpen(true)}
               disabled={!activeGroupData}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-xl border font-semibold shrink-0 transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="flex w-full items-center justify-center gap-1.5 rounded-xl border px-3 py-2 font-semibold transition-all duration-150 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto sm:shrink-0"
               style={{
                 fontSize: "11px",
                 color: "#9945FF",
@@ -1161,10 +1191,10 @@ export function ChatView({
             </motion.button>
 
             <div
-              className="flex-1 flex items-center gap-3 px-4 py-2.5 rounded-xl border border-border transition-all duration-150"
+              className="flex w-full flex-1 items-center gap-2 rounded-xl border border-border px-3 py-2.5 transition-all duration-150 sm:gap-3 sm:px-4"
               style={{ background: "var(--muted)" }}
             >
-              <Paperclip size={14} className="text-muted-foreground shrink-0" />
+              <Paperclip size={14} className="hidden shrink-0 text-muted-foreground sm:block" />
               <input
                 value={input}
                 onChange={(event) => setInput(event.target.value)}
@@ -1179,16 +1209,16 @@ export function ChatView({
                 className="flex-1 bg-transparent text-foreground placeholder:text-muted-foreground outline-none min-w-0"
                 style={{ fontSize: "13px" }}
               />
-              <Smile size={14} className="text-muted-foreground shrink-0" />
+              <Smile size={14} className="hidden shrink-0 text-muted-foreground sm:block" />
               <motion.button
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.94 }}
                 onClick={() => { void sendMessage(); }}
                 disabled={!activeGroup || !input.trim() || sending}
-                className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0 transition-colors"
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-colors"
                 style={{ background: input.trim() && activeGroup ? "var(--primary)" : "var(--border)" }}
               >
-                <Send size={12} className={input.trim() && activeGroup ? "text-white" : "text-muted-foreground"} />
+                <Send size={13} className={input.trim() && activeGroup ? "text-white" : "text-muted-foreground"} />
               </motion.button>
             </div>
           </div>
