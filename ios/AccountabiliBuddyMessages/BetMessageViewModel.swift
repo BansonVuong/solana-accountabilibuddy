@@ -143,6 +143,14 @@ final class BetMessageViewModel: ObservableObject {
             pendingConversationId = conversationId
             await bootstrap()
             guard isSignedIn else { return }
+            let savedConversationId = conversationFingerprint.flatMap {
+                defaults.string(forKey: conversationKeyPrefix + $0)
+            }
+            let currentConversationId = conversation?.id ?? savedConversationId
+            if let currentConversationId, currentConversationId != conversationId {
+                await joinConversation(conversationId, switchedFromAnotherConversation: true)
+                return
+            }
             await loadPendingConversation(conversationId)
             return
         }
@@ -194,17 +202,23 @@ final class BetMessageViewModel: ObservableObject {
 
     func joinPendingConversation() async {
         guard let pendingConversationId else { return }
+        await joinConversation(pendingConversationId, switchedFromAnotherConversation: false)
+    }
+
+    private func joinConversation(_ id: String, switchedFromAnotherConversation: Bool) async {
         do {
             try requireSignedIn()
             isBusy = true
             errorMessage = nil
-            let joined = try await client.joinConversation(id: pendingConversationId)
+            let joined = try await client.joinConversation(id: id)
             conversation = joined
             pendingConversation = nil
             self.pendingConversationId = nil
             persistConversationId(joined.id)
             refreshRecipientCandidates()
-            infoMessage = "Joined this AccountabiliBuddy conversation."
+            infoMessage = switchedFromAnotherConversation
+                ? "Switched to and joined this AccountabiliBuddy conversation."
+                : "Joined this AccountabiliBuddy conversation."
         } catch {
             errorMessage = error.localizedDescription
         }
