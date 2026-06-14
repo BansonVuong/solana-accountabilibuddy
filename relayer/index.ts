@@ -10,7 +10,6 @@
 //   PROFILE_INITIALS  profile initials       (default "ME")
 //   PROFILE_GITHUB    profile github handle  (default "me")
 //   PROFILE_WALLET    profile wallet pubkey  (default oracle pubkey)
-//   USDC_MINT         USDC mint pubkey       (default devnet USDC)
 //   AUTH_SECRET       HMAC signing secret for auth sessions
 //   AUTH_SESSION_TTL_MS session lifetime in milliseconds (default 30 days)
 //   MONGODB_URI       Mongo connection string (optional; enables data routes)
@@ -42,7 +41,6 @@ const POLL_INTERVAL   = Number(process.env.POLL_INTERVAL_MS ?? 60_000);
 const PROFILE_NAME    = process.env.PROFILE_NAME ?? "Me";
 const PROFILE_INITIALS = process.env.PROFILE_INITIALS ?? "ME";
 const PROFILE_GITHUB   = process.env.PROFILE_GITHUB ?? "me";
-const DEFAULT_USDC_MINT = "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU";
 const AUTH_SECRET = process.env.AUTH_SECRET ?? "dev-only-insecure-auth-secret";
 const AUTH_SESSION_TTL_MS = Number(process.env.AUTH_SESSION_TTL_MS ?? 1000 * 60 * 60 * 24 * 30);
 const IMESSAGE_DEEP_LINK_BASE = process.env.IMESSAGE_DEEP_LINK_BASE ?? "accountabilibuddy://bet";
@@ -60,6 +58,9 @@ const SOCIAL_BET_SETTLE_DELAY_SECS = Number(
   process.env.SOCIAL_BET_SETTLE_DELAY_SECS ?? 15,
 );
 const SOCIAL_BET_SPORT        = 0; // reuse the sportsBet program; sport is irrelevant for chat bets
+const BET_BALANCE_BUFFER_LAMPORTS = Number(
+  process.env.BET_BALANCE_BUFFER_LAMPORTS ?? 0.02 * web3.LAMPORTS_PER_SOL,
+);
 
 const VAULT_SEED        = Buffer.from("vault");
 const SPORTS_BET_SEED   = Buffer.from("sports_bet");
@@ -80,7 +81,6 @@ const connection = new web3.Connection(RPC_URL, "confirmed");
 const provider   = new AnchorProvider(connection, new Wallet(oracle), AnchorProvider.defaultOptions());
 const program    = new Program<Accountability>(idl as Accountability, provider);
 const profileWallet = parsePublicKey(process.env.PROFILE_WALLET, oracle.publicKey);
-const usdcMint = parsePublicKey(process.env.USDC_MINT, new web3.PublicKey(DEFAULT_USDC_MINT));
 
 // ── custodial wallets ───────────────────────────────────────────────────────────
 // Each user gets a relayer-managed devnet keypair. The secret is stored encrypted;
@@ -124,16 +124,6 @@ async function airdrop(pubkey: web3.PublicKey, lamports: number): Promise<void> 
   console.log(`airdropped ${lamports / web3.LAMPORTS_PER_SOL} SOL to ${pubkey.toBase58()}`);
 }
 
-/** Top up a custodial wallet (devnet only) when it can't cover a pending stake. */
-async function ensureFunds(pubkey: web3.PublicKey, needLamports: number): Promise<void> {
-  if (!isDevnet) return;
-  const buffer = 0.02 * web3.LAMPORTS_PER_SOL; // rent + fees headroom
-  const balance = await connection.getBalance(pubkey, "confirmed");
-  if (balance >= needLamports + buffer) return;
-  await airdrop(pubkey, Math.max(WALLET_AIRDROP_LAMPORTS, needLamports + buffer)).catch((err) =>
-    console.warn(`top-up airdrop failed for ${pubkey.toBase58()}:`, err instanceof Error ? err.message : err),
-  );
-}
 
 /** Provision (and devnet-fund) a custodial wallet on first need; mutates `user`. */
 async function ensureUserWallet(user: UserDoc): Promise<web3.Keypair> {
@@ -193,6 +183,35 @@ function solStakeToLamports(stake: string): number {
   const lamports = Math.round(n * web3.LAMPORTS_PER_SOL);
   if (lamports <= 0) throw new Error("SOL stake too small");
   return lamports;
+}
+
+class InsufficientSolBalanceError extends Error {
+  constructor(
+    public readonly actor: "challenger" | "acceptor",
+    public readonly availableLamports: number,
+    public readonly requiredLamports: number,
+  ) {
+    super(
+      `${actor} has insufficient SOL: requires ${formatSol(requiredLamports)} SOL, available ${formatSol(availableLamports)} SOL`,
+    );
+    this.name = "InsufficientSolBalanceError";
+  }
+}
+
+function formatSol(lamports: number): string {
+  return (lamports / web3.LAMPORTS_PER_SOL).toFixed(4);
+}
+
+async function requireSolBalanceForBet(
+  pubkey: web3.PublicKey,
+  amountLamports: number,
+  actor: "challenger" | "acceptor",
+): Promise<void> {
+  const requiredLamports = amountLamports + BET_BALANCE_BUFFER_LAMPORTS;
+  const availableLamports = await connection.getBalance(pubkey, "confirmed");
+  if (availableLamports < requiredLamports) {
+    throw new InsufficientSolBalanceError(actor, availableLamports, requiredLamports);
+  }
 }
 
 // ── original accountability crank ─────────────────────────────────────────────
@@ -636,10 +655,6 @@ const server = http.createServer(async (req, res) => {
         );
         if (authUser.walletPubkey) wallet = new web3.PublicKey(authUser.walletPubkey);
       }
-      const usdcBalance = await fetchUsdcBalance(wallet, usdcMint).catch((err) => {
-        console.error("failed to fetch USDC balance:", err);
-        return 0;
-      });
       const solBalance = await connection
         .getBalance(wallet, "confirmed")
         .then((lamports) => lamports / web3.LAMPORTS_PER_SOL)
@@ -652,8 +667,6 @@ const server = http.createServer(async (req, res) => {
         initials: authUser ? toInitials(authUser.username) : PROFILE_INITIALS,
         github: authUser?.username ?? PROFILE_GITHUB,
         wallet: wallet.toBase58(),
-        usdcMint: usdcMint.toBase58(),
-        usdcBalance,
         solBalance,
       });
     }
@@ -948,6 +961,7 @@ const server = http.createServer(async (req, res) => {
       if (!stakeInput || !Number.isFinite(numericStake) || numericStake <= 0) {
         return json(res, 400, { error: "stake must be a positive number" });
       }
+      const amountLamports = solStakeToLamports(stakeInput);
       if (isSports) {
         if (!SPORT_NAMES.includes(sport as Sport)) {
           return json(res, 400, { error: "sport must be soccer | nba | nfl" });
@@ -962,6 +976,18 @@ const server = http.createServer(async (req, res) => {
       if (!group) return json(res, 404, { error: "group not found" });
       if (!isGroupMember(group, authUser.username)) {
         return json(res, 403, { error: "group membership required" });
+      }
+      let challengerKp: web3.Keypair;
+      try {
+        challengerKp = await ensureUserWallet(authUser);
+        await requireSolBalanceForBet(challengerKp.publicKey, amountLamports, "challenger");
+      } catch (err) {
+        if (err instanceof InsufficientSolBalanceError) {
+          return json(res, 400, { error: err.message });
+        }
+        return json(res, 502, {
+          error: `failed to verify challenger SOL balance: ${err instanceof Error ? err.message : String(err)}`,
+        });
       }
 
       const now = Date.now();
@@ -1040,9 +1066,6 @@ const server = http.createServer(async (req, res) => {
       // both stakes are escrowed atomically when someone accepts (see POST /bets/accept).
       if (isSports) {
         try {
-          const challengerKp = await ensureUserWallet(authUser);
-          const amountLamports = solStakeToLamports(stakeInput);
-          await ensureFunds(challengerKp.publicKey, amountLamports);
           const startTime = Math.floor(now / 1000) + SOCIAL_BET_WINDOW_SECS;
           const settleAfter = startTime + 1;
           // Sports bets store the real numeric ESPN game id so crankSportsBets settles them.
@@ -1083,6 +1106,9 @@ const server = http.createServer(async (req, res) => {
           } });
         } catch (err) {
           await betsCol.deleteOne({ id: betDoc.id });
+          if (err instanceof InsufficientSolBalanceError) {
+            return json(res, 400, { error: err.message });
+          }
           return json(res, 502, {
             error: `failed to escrow SOL on-chain: ${err instanceof Error ? err.message : String(err)}`,
           });
@@ -1166,7 +1192,7 @@ const server = http.createServer(async (req, res) => {
       try {
         const amountLamports = solStakeToLamports(bet.stake);
         const acceptorKp = await ensureUserWallet(authUser);
-        await ensureFunds(acceptorKp.publicKey, amountLamports);
+        await requireSolBalanceForBet(acceptorKp.publicKey, amountLamports, "acceptor");
 
         if (bet.validation === "sports") {
           // Sports bets are escrowed at post time; the opponent just stakes the other
@@ -1193,7 +1219,7 @@ const server = http.createServer(async (req, res) => {
           const challengerUser = await usersCol.findOne({ usernameLower: bet.challenger.toLowerCase() });
           if (!challengerUser) return json(res, 409, { error: "challenger account not found" });
           const challengerKp = await ensureUserWallet(challengerUser);
-          await ensureFunds(challengerKp.publicKey, amountLamports);
+          await requireSolBalanceForBet(challengerKp.publicKey, amountLamports, "challenger");
 
           const gid = gameIdBytes(bet.id);
           const betPda = sportsBetPda(challengerKp.publicKey, gid);
@@ -1254,6 +1280,9 @@ const server = http.createServer(async (req, res) => {
         const updated = await betsCol.findOne({ id: betId }, { projection: { _id: 0 } });
         return json(res, 200, { bet: updated ? normalizeBetDoc(updated) : { ...bet, ...update } });
       } catch (err) {
+        if (err instanceof InsufficientSolBalanceError) {
+          return json(res, 400, { error: err.message });
+        }
         return json(res, 502, {
           error: `failed to escrow SOL on-chain: ${err instanceof Error ? err.message : String(err)}`,
         });
@@ -1514,18 +1543,6 @@ function formatChatClock(timestampMs: number): string {
   return new Date(timestampMs).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 }
 
-async function fetchUsdcBalance(owner: web3.PublicKey, mint: web3.PublicKey): Promise<number> {
-  const accounts = await connection.getParsedTokenAccountsByOwner(owner, { mint }, "confirmed");
-  let total = 0;
-  for (const item of accounts.value) {
-    const parsed = item.account.data as {
-      parsed?: { info?: { tokenAmount?: { uiAmount?: number } } };
-    };
-    const amount = Number(parsed.parsed?.info?.tokenAmount?.uiAmount ?? 0);
-    if (Number.isFinite(amount)) total += amount;
-  }
-  return total;
-}
 
 type AuthTokenPayload = {
   uid: string;

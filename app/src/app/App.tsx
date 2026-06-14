@@ -690,7 +690,7 @@ export default function App() {
                     </div>
                     <div className="rounded-lg border border-border p-2">
                       <Mono className="text-muted-foreground block" style={{ fontSize: "9px" } as React.CSSProperties}>
-                        ACCOUNT BALANCE (USDC)
+                        ACCOUNT BALANCE (SOL)
                       </Mono>
                       {profileLoading ? (
                         <span className="text-muted-foreground block mt-0.5" style={{ fontSize: "12px" }}>
@@ -698,10 +698,10 @@ export default function App() {
                         </span>
                       ) : (
                         <Mono className="text-foreground block mt-0.5" style={{ fontSize: "15px", fontWeight: 700 } as React.CSSProperties}>
-                          {(profile?.usdcBalance ?? 0).toLocaleString(undefined, {
+                          {(profile?.solBalance ?? 0).toLocaleString(undefined, {
                             minimumFractionDigits: 2,
-                            maximumFractionDigits: 6,
-                          })} USDC
+                            maximumFractionDigits: 4,
+                          })} SOL
                         </Mono>
                       )}
                       {profileError && (

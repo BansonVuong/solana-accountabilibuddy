@@ -132,13 +132,10 @@ export interface ProfileSummary {
   initials: string;
   github: string;
   wallet: string;
-  usdcMint: string;
-  usdcBalance: number;
-  /** Devnet SOL balance of the (custodial) wallet. */
+  /** SOL balance of the account wallet. */
   solBalance: number;
 }
-
-/** Profile details plus current USDC balance for the configured profile wallet. */
+/** Profile details plus current SOL balance for the configured profile wallet. */
 export function getProfileSummary(): Promise<ProfileSummary> {
   return req<ProfileSummary>("/profile");
 }
