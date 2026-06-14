@@ -19,7 +19,6 @@ final class BetMessageViewModel: ObservableObject {
     @Published var profile: MessageProfile?
 
     @Published var betType: MessageBetType = .PERSONAL
-    @Published var acceptor: String = ""
     @Published var terms: String = ""
     @Published var stake: String = ""
 
@@ -216,17 +215,9 @@ final class BetMessageViewModel: ObservableObject {
             throw RelayerClientError.server("Stake must be a positive SOL amount.")
         }
 
-        let normalizedAcceptor: String
-        if betType == .DEV {
-            let trimmed = acceptor.trimmingCharacters(in: .whitespacesAndNewlines)
-            normalizedAcceptor = trimmed.isEmpty ? "anyone" : trimmed
-        } else {
-            let trimmed = acceptor.trimmingCharacters(in: .whitespacesAndNewlines)
-            if trimmed.isEmpty {
-                throw RelayerClientError.server("Acceptor username is required for PERSONAL bets.")
-            }
-            normalizedAcceptor = trimmed
-        }
+        // iMessage bets are scoped to the active conversation; acceptance is
+        // member-based (group participant or direct recipient), not a typed username.
+        let normalizedAcceptor = "anyone"
 
         let normalizedTerms: String
         if betType == .DEV && useSportsValidation {
@@ -261,7 +252,6 @@ final class BetMessageViewModel: ObservableObject {
     }
 
     private func clearComposeForm() {
-        acceptor = ""
         terms = ""
         stake = ""
         useSportsValidation = false

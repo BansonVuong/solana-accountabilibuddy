@@ -132,14 +132,9 @@ struct BetMessageRootView: View {
                 }
             }
             .pickerStyle(.segmented)
-
-            TextField(
-                viewModel.betType == .DEV ? "Acceptor (optional, defaults to anyone)" : "Acceptor username",
-                text: $viewModel.acceptor
-            )
-            .textInputAutocapitalization(.never)
-            .autocorrectionDisabled()
-            .textFieldStyle(.roundedBorder)
+            Text("Recipient is derived from this iMessage conversation. In a direct chat, it's the other person; in a group chat, any member can accept.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
 
             Toggle("DEV sports validation", isOn: $viewModel.useSportsValidation)
                 .disabled(viewModel.betType != .DEV)
