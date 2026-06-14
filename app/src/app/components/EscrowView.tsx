@@ -157,8 +157,13 @@ export function EscrowView({ onOpenBetChat }: EscrowViewProps) {
                           {bet.terms}
                         </p>
                         <p className="text-muted-foreground mt-1 truncate" style={{ fontSize: "11px" }}>
-                          {bet.challenger} vs {bet.acceptor} · {bet.stake} {bet.currency}
+                          sent by {bet.challenger} · {bet.stake} {bet.currency}
                         </p>
+                        {bet.acceptedBy && (
+                          <p className="text-muted-foreground mt-0.5 truncate" style={{ fontSize: "11px" }}>
+                            accepted by {bet.acceptedBy}
+                          </p>
+                        )}
                         <Mono className="text-muted-foreground block mt-1" style={{ fontSize: "10px" } as React.CSSProperties}>
                           {group ? `GROUP: ${group.name}` : "GROUP: unavailable"}
                         </Mono>

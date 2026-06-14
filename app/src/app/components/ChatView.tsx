@@ -210,6 +210,15 @@ function EmbeddedBetCard({
   const isSports = bet.validation === "sports";
   const isParticipant = isBetParticipant(bet, voterName);
   const canVote = !isSports && !isParticipant && bet.status === "ACTIVE" && !isResolved && !winner && !isVoting;
+  const acceptedByLabel = (() => {
+    if (bet.status === "PENDING") return null;
+    const explicitAcceptedBy = bet.acceptedBy?.trim();
+    if (explicitAcceptedBy) return explicitAcceptedBy;
+    const opponentUsername = bet.opponentUsername?.trim();
+    if (opponentUsername) return opponentUsername;
+    if (bet.acceptor.toLowerCase() !== "anyone") return bet.acceptor;
+    return null;
+  })();
 
   return (
     <div className="w-full max-w-[420px] rounded-2xl border border-border overflow-hidden bg-card">
@@ -222,6 +231,16 @@ function EmbeddedBetCard({
         <p className="text-foreground leading-snug" style={{ fontSize: "15px", fontWeight: 600 }}>
           "{bet.terms}"
         </p>
+        <div className="mt-2 space-y-1">
+          <Mono className="text-muted-foreground block" style={{ fontSize: "10px" } as React.CSSProperties}>
+            sent by {bet.challenger}
+          </Mono>
+          {acceptedByLabel && (
+            <Mono className="text-muted-foreground block" style={{ fontSize: "10px" } as React.CSSProperties}>
+              accepted by {acceptedByLabel}
+            </Mono>
+          )}
+        </div>
         {!isSports && (
           <div className="mt-3 grid grid-cols-2 gap-2">
             <div className="rounded-lg border border-[#9945FF]/20 bg-[#9945FF]/8 px-2.5 py-2">
