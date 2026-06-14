@@ -227,7 +227,6 @@ export interface Profile {
   initials: string;
   github: string;
   bio?: string;
-  pals: number;
   sol: number;
   wins: number;
   disputes: number;
@@ -307,8 +306,6 @@ export interface Player {
   name: string;
   initials: string;
   github: string;
-  pals: number;
-  palsDelta: number;
   sol: number;
   solDelta: number;
   wins: number;
@@ -428,7 +425,6 @@ export function createProfile(input: {
   initials?: string;
   github?: string;
   bio?: string;
-  pals?: number;
   sol?: number;
   wins?: number;
   disputes?: number;

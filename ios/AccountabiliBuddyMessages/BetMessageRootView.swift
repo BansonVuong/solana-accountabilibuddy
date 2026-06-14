@@ -81,6 +81,11 @@ struct BetMessageRootView: View {
                     Text(viewModel.currentUser?.email ?? "")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                    if viewModel.isMessagesIdentityLinked {
+                        Text("@\(viewModel.currentUser?.username ?? "") linked to this Messages identity")
+                            .font(.caption2)
+                            .foregroundStyle(.green)
+                    }
                 }
                 Spacer()
                 Button("Sign out") {
@@ -132,14 +137,29 @@ struct BetMessageRootView: View {
                 }
             }
             .pickerStyle(.segmented)
-            Text("Recipient is derived from this iMessage conversation. In a direct chat, it's the other person; in a group chat, any member can accept.")
+            if viewModel.recipientCandidates.isEmpty {
+                TextField("Target username (optional)", text: $viewModel.recipientUsername)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .textFieldStyle(.roundedBorder)
+                Text("Participants appear here after they open AccountabiliBuddy in this conversation and sign in once.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            } else {
+                Picker("Target recipient", selection: $viewModel.recipientUsername) {
+                    Text("Any member").tag("")
+                    ForEach(viewModel.recipientCandidates, id: \.self) { username in
+                        Text("@\(username)").tag(username)
+                    }
+                }
+                .pickerStyle(.menu)
+            }
+
+            Text("Known participants are shown by AccountabiliBuddy username. Apple does not expose phone numbers or iCloud emails to Messages extensions.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
-            Toggle("DEV sports validation", isOn: $viewModel.useSportsValidation)
-                .disabled(viewModel.betType != .DEV)
-
-            if viewModel.betType == .DEV && viewModel.useSportsValidation {
+            if viewModel.betType == .DEV {
                 TextField("Sport (nba | nfl | soccer)", text: $viewModel.sport)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()

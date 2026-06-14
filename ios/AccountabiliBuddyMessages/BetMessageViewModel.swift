@@ -21,8 +21,10 @@ final class BetMessageViewModel: ObservableObject {
     @Published var betType: MessageBetType = .PERSONAL
     @Published var terms: String = ""
     @Published var stake: String = ""
+    @Published var recipientUsername: String = ""
+    @Published var recipientCandidates: [String] = []
+    @Published var isMessagesIdentityLinked: Bool = false
 
-    @Published var useSportsValidation: Bool = false
     @Published var sport: String = "nba"
     @Published var gameId: String = ""
     @Published var backsHome: Bool = true
@@ -42,6 +44,8 @@ final class BetMessageViewModel: ObservableObject {
     private let productionURL = URL(string: "https://66.42.115.38.nip.io")!
     private var authToken: String
     private var hasBootstrapped = false
+    private var localParticipantId: String?
+    private var remoteParticipantIds: [String] = []
     private let client: RelayerClient
 
     init() {
@@ -65,6 +69,8 @@ final class BetMessageViewModel: ObservableObject {
             isBusy = true
             currentUser = try await client.currentUser()
             try await refreshProfile()
+            await linkMessagesIdentity()
+            await refreshRecipientCandidates()
         } catch {
             signOut(showMessage: false)
         }
@@ -99,6 +105,8 @@ final class BetMessageViewModel: ObservableObject {
             defaults.set(response.token, forKey: authTokenKey)
             password = ""
             try await refreshProfile()
+            await linkMessagesIdentity()
+            await refreshRecipientCandidates()
             infoMessage = isCreatingAccount ? "Account created." : "Signed in."
         } catch {
             errorMessage = error.localizedDescription
@@ -116,6 +124,9 @@ final class BetMessageViewModel: ObservableObject {
         profile = nil
         selectedBetId = nil
         selectedCard = nil
+        recipientUsername = ""
+        recipientCandidates = []
+        isMessagesIdentityLinked = false
         client.update(baseURL: productionURL, authToken: "")
         defaults.removeObject(forKey: authTokenKey)
         if showMessage {
@@ -127,6 +138,15 @@ final class BetMessageViewModel: ObservableObject {
         guard let id = Self.betId(from: url) else { return }
         await bootstrap()
         await loadBetCard(id)
+    }
+
+    func updateConversationParticipants(local: String, remote: [String]) async {
+        localParticipantId = local.lowercased()
+        remoteParticipantIds = remote.map { $0.lowercased() }
+        await bootstrap()
+        guard isSignedIn else { return }
+        await linkMessagesIdentity()
+        await refreshRecipientCandidates()
     }
 
     func loadBetCard(_ betId: String) async {
@@ -209,23 +229,68 @@ final class BetMessageViewModel: ObservableObject {
         }
     }
 
+    func refreshRecipientCandidates() async {
+        guard currentUser != nil, !remoteParticipantIds.isEmpty else {
+            recipientCandidates = []
+            recipientUsername = ""
+            return
+        }
+        do {
+            let resolved = try await client.resolveParticipants(remoteParticipantIds)
+            let candidates = Array(Set(resolved.map(\.username)))
+                .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+            recipientCandidates = candidates
+            if !recipientUsername.isEmpty {
+                let selectedLower = recipientUsername.lowercased()
+                if let canonical = candidates.first(where: { $0.lowercased() == selectedLower }) {
+                    recipientUsername = canonical
+                }
+            }
+        } catch {
+            recipientCandidates = []
+        }
+    }
+
+    private func linkMessagesIdentity() async {
+        guard let localParticipantId, isSignedIn else { return }
+        do {
+            try await client.linkParticipant(localParticipantId)
+            isMessagesIdentityLinked = true
+        } catch {
+            isMessagesIdentityLinked = false
+            errorMessage = error.localizedDescription
+        }
+    }
+
     private func buildCreateBetRequest() throws -> MessageCreateBetRequest {
         let trimmedStake = stake.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let numericStake = Double(trimmedStake), numericStake > 0 else {
             throw RelayerClientError.server("Stake must be a positive SOL amount.")
         }
-
-        // iMessage bets are scoped to the active conversation; acceptance is
-        // member-based (group participant or direct recipient), not a typed username.
-        let normalizedAcceptor = "anyone"
+        let selectedRecipient = recipientUsername.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedAcceptor: String
+        if selectedRecipient.isEmpty {
+            normalizedAcceptor = "anyone"
+        } else {
+            if selectedRecipient.caseInsensitiveCompare(currentUser?.username ?? "") == .orderedSame {
+                throw RelayerClientError.server("You cannot target yourself.")
+            }
+            if let canonical = recipientCandidates.first(where: {
+                $0.caseInsensitiveCompare(selectedRecipient) == .orderedSame
+            }) {
+                normalizedAcceptor = canonical
+            } else {
+                normalizedAcceptor = selectedRecipient
+            }
+        }
 
         let normalizedTerms: String
-        if betType == .DEV && useSportsValidation {
+        if betType == .DEV {
             let trimmedGameID = gameId.trimmingCharacters(in: .whitespacesAndNewlines)
             if trimmedGameID.isEmpty {
-                throw RelayerClientError.server("Sports game ID is required when sports validation is enabled.")
+                throw RelayerClientError.server("Sports game ID is required.")
             }
-            normalizedTerms = "Sports DEV bet for \(sport.uppercased()) game \(trimmedGameID)."
+            normalizedTerms = "Sports bet for \(sport.uppercased()) game \(trimmedGameID)."
         } else {
             let trimmedTerms = terms.trimmingCharacters(in: .whitespacesAndNewlines)
             if trimmedTerms.count < 8 {
@@ -234,7 +299,7 @@ final class BetMessageViewModel: ObservableObject {
             normalizedTerms = trimmedTerms
         }
 
-        let sportsMode = betType == .DEV && useSportsValidation
+        let sportsMode = betType == .DEV
 
         return MessageCreateBetRequest(
             source: "imessage",
@@ -254,7 +319,7 @@ final class BetMessageViewModel: ObservableObject {
     private func clearComposeForm() {
         terms = ""
         stake = ""
-        useSportsValidation = false
+        recipientUsername = ""
         sport = "nba"
         gameId = ""
         backsHome = true

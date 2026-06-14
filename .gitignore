@@ -8,3 +8,27 @@ test-ledger
 .surfpool
 .env
 .env.local
+
+# Xcode / iOS
+## Build artifacts
+**/DerivedData/
+build/
+*.ipa
+*.dSYM
+*.dSYM.zip
+
+## User-specific Xcode state (per-developer, never share)
+**/xcuserdata/
+**/*.xcuserstate
+
+## Generated workspace bits (keep hand-edited contents.xcworkspacedata)
+**/project.xcworkspace/xcuserdata/
+**/xcshareddata/IDEWorkspaceChecks.plist
+
+## Swift Package Manager
+.swiftpm/
+**/.build/
+
+## CocoaPods / Carthage (if ever added)
+Pods/
+Carthage/Build/

@@ -1,15 +1,10 @@
-import { useState } from "react";
 import { Github, TrendingUp, TrendingDown, Minus, Trophy, Star, Zap } from "lucide-react";
-
-type TabType = "points" | "sol";
 
 interface Player {
   rank: number;
   name: string;
   initials: string;
   githubUsername: string;
-  pointBalance: number;
-  pointDelta: number;
   solBalance: number;
   solDelta: number;
   wins: number;
@@ -18,13 +13,13 @@ interface Player {
 }
 
 const players: Player[] = [
-  { rank: 1, name: "Sarah Chen", initials: "SC", githubUsername: "sarahcodes", pointBalance: 12450, pointDelta: 1200, solBalance: 2.41, solDelta: 0.8, wins: 18, total: 21, streak: 7 },
-  { rank: 2, name: "Kevin Park", initials: "KP", githubUsername: "kev_dev", pointBalance: 9820, pointDelta: 540, solBalance: 1.75, solDelta: 0.3, wins: 14, total: 18, streak: 3 },
-  { rank: 3, name: "Jordan Lee", initials: "JL", githubUsername: "jleebuilds", pointBalance: 8110, pointDelta: -320, solBalance: 1.22, solDelta: -0.15, wins: 11, total: 17, streak: 0 },
-  { rank: 4, name: "Matt Rivera", initials: "MR", githubUsername: "matt_riv", pointBalance: 7340, pointDelta: 860, solBalance: 0.98, solDelta: 0.4, wins: 9, total: 13, streak: 2 },
-  { rank: 5, name: "Alex Kim", initials: "AK", githubUsername: "alexbuilds", pointBalance: 5900, pointDelta: -150, solBalance: 0.64, solDelta: -0.05, wins: 7, total: 12, streak: 0 },
-  { rank: 6, name: "Dana Wu", initials: "DW", githubUsername: "danawu_dev", pointBalance: 4200, pointDelta: 210, solBalance: 0.38, solDelta: 0.1, wins: 5, total: 10, streak: 1 },
-  { rank: 7, name: "Chris Obi", initials: "CO", githubUsername: "chrisobi", pointBalance: 2750, pointDelta: -80, solBalance: 0.21, solDelta: -0.02, wins: 3, total: 9, streak: 0 },
+  { rank: 1, name: "Sarah Chen", initials: "SC", githubUsername: "sarahcodes", solBalance: 2.41, solDelta: 0.8, wins: 18, total: 21, streak: 7 },
+  { rank: 2, name: "Kevin Park", initials: "KP", githubUsername: "kev_dev", solBalance: 1.75, solDelta: 0.3, wins: 14, total: 18, streak: 3 },
+  { rank: 3, name: "Jordan Lee", initials: "JL", githubUsername: "jleebuilds", solBalance: 1.22, solDelta: -0.15, wins: 11, total: 17, streak: 0 },
+  { rank: 4, name: "Matt Rivera", initials: "MR", githubUsername: "matt_riv", solBalance: 0.98, solDelta: 0.4, wins: 9, total: 13, streak: 2 },
+  { rank: 5, name: "Alex Kim", initials: "AK", githubUsername: "alexbuilds", solBalance: 0.64, solDelta: -0.05, wins: 7, total: 12, streak: 0 },
+  { rank: 6, name: "Dana Wu", initials: "DW", githubUsername: "danawu_dev", solBalance: 0.38, solDelta: 0.1, wins: 5, total: 10, streak: 1 },
+  { rank: 7, name: "Chris Obi", initials: "CO", githubUsername: "chrisobi", solBalance: 0.21, solDelta: -0.02, wins: 3, total: 9, streak: 0 },
 ];
 
 const avatarColors: Record<number, string> = {
@@ -37,7 +32,7 @@ const avatarColors: Record<number, string> = {
   7: "bg-cyan-500/20 text-cyan-400",
 };
 
-function DeltaCell({ value, currency }: { value: number; currency: string }) {
+function DeltaCell({ value }: { value: number }) {
   const positive = value > 0;
   const zero = value === 0;
   return (
@@ -45,7 +40,7 @@ function DeltaCell({ value, currency }: { value: number; currency: string }) {
       zero ? "text-muted-foreground" : positive ? "text-[#14F195]" : "text-[#FF4A4A]"
     }`} style={{ fontSize: "13px", fontFamily: "'JetBrains Mono', monospace", fontWeight: 500 }}>
       {zero ? <Minus size={12} /> : positive ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
-      {zero ? "—" : `${positive ? "+" : ""}${currency === "SOL" ? value.toFixed(2) : value.toLocaleString()} ${currency}`}
+      {zero ? "—" : `${positive ? "+" : ""}${value.toFixed(2)} SOL`}
     </div>
   );
 }
@@ -82,11 +77,8 @@ function RankBadge({ rank }: { rank: number }) {
 }
 
 export function Leaderboard() {
-  const [tab, setTab] = useState<TabType>("points");
-
-  const sorted = [...players].sort((a, b) =>
-    tab === "points" ? b.pointBalance - a.pointBalance : b.solBalance - a.solBalance
-  );
+  const sorted = [...players].sort((a, b) => b.solBalance - a.solBalance);
+  const poolTotal = sorted.reduce((sum, player) => sum + player.solBalance, 0);
 
   return (
     <div className="rounded-2xl border border-border bg-card overflow-hidden">
@@ -96,31 +88,15 @@ export function Leaderboard() {
           <p className="text-foreground" style={{ fontSize: "16px", fontWeight: 700 }}>Live Leaderboard</p>
           <p className="text-muted-foreground" style={{ fontSize: "12px" }}>Updated in real-time · 7 players</p>
         </div>
-        <div className="flex items-center gap-1 p-1 rounded-lg bg-muted/50 border border-border">
-          {([
-            { key: "points", label: "$PALS Points" },
-            { key: "sol", label: "SOL Wager Pool" },
-          ] as { key: TabType; label: string }[]).map((t) => (
-            <button
-              key={t.key}
-              onClick={() => setTab(t.key)}
-              className={`px-3 py-1.5 rounded-md transition-all ${
-                tab === t.key
-                  ? "bg-primary text-primary-foreground"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
-              style={{ fontSize: "12px", fontWeight: 500 }}
-            >
-              {t.label}
-            </button>
-          ))}
+        <div className="px-3 py-1.5 rounded-md border border-border bg-muted/50 text-foreground" style={{ fontSize: "12px", fontWeight: 500 }}>
+          SOL Wager Pool
         </div>
       </div>
 
       {/* Column headers */}
       <div className="grid px-5 py-2 border-b border-border"
         style={{ gridTemplateColumns: "40px 1fr 160px 200px 1fr" }}>
-        {["Rank", "Player", tab === "points" ? "PALS Balance" : "SOL Balance", "Net Change", "Win Rate"].map((h) => (
+        {["Rank", "Player", "SOL Balance", "Net Change", "Win Rate"].map((h) => (
           <span key={h} className="text-muted-foreground uppercase tracking-widest"
             style={{ fontSize: "9px", fontFamily: "'JetBrains Mono', monospace" }}>
             {h}
@@ -175,20 +151,15 @@ export function Leaderboard() {
             {/* Balance */}
             <div>
               <p className="text-foreground" style={{ fontSize: "15px", fontWeight: 700, fontFamily: "'JetBrains Mono', monospace" }}>
-                {tab === "points"
-                  ? player.pointBalance.toLocaleString()
-                  : player.solBalance.toFixed(2)}
+                {player.solBalance.toFixed(2)}
               </p>
               <p className="text-muted-foreground" style={{ fontSize: "10px", fontFamily: "'JetBrains Mono', monospace" }}>
-                {tab === "points" ? "$PALS" : "SOL"}
+                SOL
               </p>
             </div>
 
             {/* Net Change */}
-            <DeltaCell
-              value={tab === "points" ? player.pointDelta : player.solDelta}
-              currency={tab === "points" ? "PALS" : "SOL"}
-            />
+            <DeltaCell value={player.solDelta} />
 
             {/* Win Rate */}
             <PerformanceBar wins={player.wins} total={player.total} />
@@ -199,7 +170,7 @@ export function Leaderboard() {
       {/* Footer */}
       <div className="px-5 py-3 border-t border-border flex items-center justify-between bg-muted/20">
         <p className="text-muted-foreground" style={{ fontSize: "11px", fontFamily: "'JetBrains Mono', monospace" }}>
-          POOL_TOTAL: {tab === "points" ? "50,570 $PALS" : "7.59 SOL"}
+          POOL_TOTAL: {poolTotal.toFixed(2)} SOL
         </p>
         <p className="text-muted-foreground" style={{ fontSize: "11px" }}>
           Last updated: just now

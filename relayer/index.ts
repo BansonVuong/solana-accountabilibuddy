@@ -791,6 +791,52 @@ const server = http.createServer(async (req, res) => {
       return json(res, 400, { error: "provide either betId or url query param" });
     }
 
+    // POST /imessage/participants/link { participantId }
+    // Links the current account to the opaque identifier supplied by Messages.framework.
+    if (req.method === "POST" && req.url === "/imessage/participants/link") {
+      const authUser = await getAuthenticatedUser(req);
+      if (!authUser) return json(res, 401, { error: "unauthorized" });
+      const col = await users();
+      if (!col) return dbUnconfigured(res);
+      const body = await readJson(req);
+      const participantId = normalizeIMessageParticipantId(body.participantId);
+      if (!participantId) return json(res, 400, { error: "valid participantId is required" });
+
+      const claimed = await col.findOne(
+        { imessageParticipantIds: participantId, id: { $ne: authUser.id } },
+        { projection: { username: 1 } },
+      );
+      if (claimed) return json(res, 409, { error: "this Messages identity is linked to another account" });
+
+      await col.updateOne(
+        { id: authUser.id },
+        { $addToSet: { imessageParticipantIds: participantId } },
+      );
+      return json(res, 200, { linked: true, username: authUser.username });
+    }
+
+    // POST /imessage/participants/resolve { participantIds: string[] }
+    if (req.method === "POST" && req.url === "/imessage/participants/resolve") {
+      const authUser = await getAuthenticatedUser(req);
+      if (!authUser) return json(res, 401, { error: "unauthorized" });
+      const col = await users();
+      if (!col) return dbUnconfigured(res);
+      const body = await readJson(req);
+      const rawIds = Array.isArray(body.participantIds) ? body.participantIds.slice(0, 50) : [];
+      const participantIds = Array.from(new Set(rawIds.map(normalizeIMessageParticipantId).filter((id): id is string => Boolean(id))));
+      if (!participantIds.length) return json(res, 200, { participants: [] });
+
+      const docs = await col.find(
+        { imessageParticipantIds: { $in: participantIds } },
+        { projection: { _id: 0, username: 1, imessageParticipantIds: 1 } },
+      ).toArray();
+      const participants = participantIds.flatMap((participantId) => {
+        const user = docs.find((doc) => doc.imessageParticipantIds?.includes(participantId));
+        return user ? [{ participantId, username: user.username }] : [];
+      });
+      return json(res, 200, { participants });
+    }
+
     // GET /imessage/bets/:id  — compact, iMessage-friendly card payload
     const imessageBetPathId = req.url ? decodeIMessageBetPathId(req.url) : null;
     if (req.method === "GET" && imessageBetPathId) {
@@ -996,7 +1042,7 @@ const server = http.createServer(async (req, res) => {
       const acceptorInput = typeof body.acceptor === "string" ? body.acceptor.trim() : "";
       let terms = typeof body.terms === "string" ? body.terms.trim() : "";
       const stakeInput = typeof body.stake === "string" ? body.stake.trim() : `${body.stake ?? ""}`.trim();
-      // All bets are on-chain SOL now (POINTS bets were scrapped).
+      // All bets are on-chain SOL now.
       const currency = "SOL";
 
       // DEV "sports" bets are settled by sports feed data rather than witness votes.
@@ -1548,7 +1594,7 @@ const server = http.createServer(async (req, res) => {
       if (!col) return dbUnconfigured(res);
       const docs = await col
         .find({}, { projection: { _id: 0 } })
-        .sort({ sol: -1, pals: -1 })
+        .sort({ sol: -1 })
         .toArray();
       return json(res, 200, { players: docs });
     }
@@ -1559,7 +1605,7 @@ const server = http.createServer(async (req, res) => {
       if (!col) return dbUnconfigured(res);
       const docs = await col
         .find({}, { projection: { _id: 0 } })
-        .sort({ sol: -1, updatedAt: -1, pals: -1 })
+        .sort({ sol: -1, updatedAt: -1 })
         .toArray();
       return json(res, 200, { profiles: docs });
     }
@@ -1589,7 +1635,6 @@ const server = http.createServer(async (req, res) => {
         initials: toInitials(typeof body.initials === "string" ? body.initials : body.name),
         github: typeof body.github === "string" && body.github.trim() ? body.github.trim() : `user-${now}`,
         bio: typeof body.bio === "string" ? body.bio.trim() : undefined,
-        pals: toFiniteNumber(body.pals, 0),
         sol: toFiniteNumber(body.sol, 0),
         wins: toFiniteNumber(body.wins, 0),
         disputes: toFiniteNumber(body.disputes, 0),
@@ -1614,7 +1659,6 @@ const server = http.createServer(async (req, res) => {
       if (typeof body.initials === "string" && body.initials.trim()) update.initials = toInitials(body.initials);
       if (typeof body.github === "string" && body.github.trim()) update.github = body.github.trim();
       if (typeof body.bio === "string") update.bio = body.bio.trim();
-      if (isFiniteNumber(body.pals)) update.pals = body.pals;
       if (isFiniteNumber(body.sol)) update.sol = body.sol;
       if (isFiniteNumber(body.wins)) update.wins = body.wins;
       if (isFiniteNumber(body.disputes)) update.disputes = body.disputes;
@@ -1761,6 +1805,13 @@ function normalizeUsername(value: unknown): string | null {
   if (!username) return null;
   const valid = /^[a-zA-Z0-9._-]{3,24}$/.test(username);
   return valid ? username : null;
+}
+
+function normalizeIMessageParticipantId(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const participantId = value.trim().toLowerCase();
+  if (!participantId || participantId.length > 128) return null;
+  return /^[a-z0-9-]+$/.test(participantId) ? participantId : null;
 }
 
 function toPublicUser(user: UserDoc): {

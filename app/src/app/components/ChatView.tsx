@@ -810,9 +810,25 @@ export function ChatView({
   function handleSendBet(bet: NewBet): void {
     if (!activeGroup || !activeGroupData) return;
     const groupId = activeGroup;
+    const currentUsername = currentUser.username.trim().toLowerCase();
+    const recipientCandidates = (activeGroupData.memberUsernames ?? [])
+      .map((username) => username.trim())
+      .filter((username): username is string => Boolean(username) && username.toLowerCase() !== currentUsername);
+    const normalizedAcceptorInput = bet.acceptor.trim().toLowerCase();
+    const selectedRecipient = recipientCandidates.find(
+      (username) => username.toLowerCase() === normalizedAcceptorInput,
+    );
     const normalizedAcceptor = bet.sport
-      ? (bet.acceptor?.trim() || "anyone")
-      : bet.acceptor.trim();
+      ? (selectedRecipient ?? "anyone")
+      : selectedRecipient;
+    if (!normalizedAcceptor) {
+      showResult(
+        "Recipient required",
+        "Pick a valid member of this group as the bet recipient.",
+        "error",
+      );
+      return;
+    }
     void createBet({
       groupId,
       type: bet.type,
@@ -848,7 +864,7 @@ export function ChatView({
   return (
     <>
       <div className="flex h-full rounded-2xl border border-border overflow-hidden" style={{ background: "var(--card)" }}>
-      <div className="w-60 flex flex-col shrink-0 border-r border-border" style={{ background: "var(--muted)" }}>
+      <div className="w-64 flex flex-col shrink-0 border-r border-border" style={{ background: "var(--muted)" }}>
         <div className="px-4 py-3 border-b border-border">
           <Mono className="text-muted-foreground uppercase" style={{ fontSize: "9px", letterSpacing: "0.1em" } as React.CSSProperties}>
             Group Chats

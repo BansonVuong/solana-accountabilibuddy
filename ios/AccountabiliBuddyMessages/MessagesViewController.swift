@@ -12,12 +12,25 @@ final class MessagesViewController: MSMessagesAppViewController {
 
     override func willBecomeActive(with conversation: MSConversation) {
         super.willBecomeActive(with: conversation)
-        Task { await viewModel.openFromIncomingURL(conversation.selectedMessage?.url) }
+        Task {
+            await updateParticipants(from: conversation)
+            await viewModel.openFromIncomingURL(conversation.selectedMessage?.url)
+        }
     }
 
     override func didSelect(_ message: MSMessage, conversation: MSConversation) {
         super.didSelect(message, conversation: conversation)
-        Task { await viewModel.openFromIncomingURL(message.url) }
+        Task {
+            await updateParticipants(from: conversation)
+            await viewModel.openFromIncomingURL(message.url)
+        }
+    }
+
+    private func updateParticipants(from conversation: MSConversation) async {
+        await viewModel.updateConversationParticipants(
+            local: conversation.localParticipantIdentifier.uuidString,
+            remote: conversation.remoteParticipantIdentifiers.map(\.uuidString)
+        )
     }
 
     private func installRootView() {

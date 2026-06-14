@@ -8,7 +8,6 @@ import {
   Trophy,
   Flame,
   Star,
-  Activity,
   BarChart3,
 } from "lucide-react";
 import { Avatar, Card, Mono } from "./ui";
@@ -48,6 +47,7 @@ interface BetHistoryOutcome {
   acceptorKey: string;
   winnerKey: string;
   stake: number;
+  occurredAt: number;
 }
 
 interface BetPerformance {
@@ -62,6 +62,7 @@ interface BetPerformance {
   totalWon: number;
   totalLost: number;
   net: number;
+  trend: number[];
 }
 
 function fromProfile(profile: Profile, rank: number): Player {
@@ -119,6 +120,16 @@ function formatStakeAmount(value: number, currency: string): string {
 
 function formatSignedStakeAmount(value: number, currency: string): string {
   return `${value > 0 ? "+" : ""}${formatStakeAmount(value, currency)} ${currency}`;
+}
+
+function inferBetTimestampMs(bet: Bet): number {
+  if (typeof bet.acceptedAt === "number" && Number.isFinite(bet.acceptedAt)) {
+    return bet.acceptedAt;
+  }
+  const match = /^bet-(\d+)-/.exec(bet.id);
+  if (!match?.[1]) return 0;
+  const parsed = Number(match[1]);
+  return Number.isFinite(parsed) ? parsed : 0;
 }
 
 function getVotesByVoter(bet: Bet): Record<string, BetVoteChoice> {
@@ -211,18 +222,52 @@ function BetMetricsCell({
   );
 }
 
-function WinRateBar({ winRate }: { winRate: number }) {
-  const color = winRate >= 60 ? "#14F195" : winRate >= 40 ? "#FFB800" : "#FF4A4A";
+function WinRateTrend({ points }: { points: number[] }) {
+  const series = points.length >= 2 ? points : [0, points[0] ?? 0];
+  const width = 140;
+  const height = 30;
+  const pad = 2;
+  const min = Math.min(...series);
+  const max = Math.max(...series);
+  const range = max - min || 1;
+  const xStep = (width - pad * 2) / (series.length - 1);
+  const baseline = height / 2;
+  const toY = (value: number): number => (
+    height - pad - ((value - min) / range) * (height - pad * 2)
+  );
+  const pointsAttr = series
+    .map((value, index) => `${pad + index * xStep},${toY(value)}`)
+    .join(" ");
+  const delta = series[series.length - 1] - series[0];
+  const stroke = delta > 0 ? "#14F195" : delta < 0 ? "#FF4A4A" : "#94A3B8";
+  const finalX = pad + (series.length - 1) * xStep;
+  const finalY = toY(series[series.length - 1]);
   return (
-    <div className="h-1.5 rounded-full bg-muted overflow-hidden">
-      <div
-        className="h-full rounded-full transition-all duration-300"
-        style={{
-          width: `${Math.max(0, Math.min(100, winRate))}%`,
-          background: color,
-        }}
+    <svg
+      viewBox={`0 0 ${width} ${height}`}
+      className="w-[140px] h-[30px] shrink-0"
+      role="img"
+      aria-label="player payout trend"
+    >
+      <line
+        x1={pad}
+        y1={baseline}
+        x2={width - pad}
+        y2={baseline}
+        stroke="var(--border)"
+        strokeDasharray="2 3"
+        strokeWidth="1"
       />
-    </div>
+      <polyline
+        fill="none"
+        stroke={stroke}
+        strokeWidth="2"
+        strokeLinejoin="round"
+        strokeLinecap="round"
+        points={pointsAttr}
+      />
+      <circle cx={finalX} cy={finalY} r="2.5" fill={stroke} />
+    </svg>
   );
 }
 
@@ -373,11 +418,6 @@ export function LeaderboardView() {
     [groupPlayers],
   );
 
-  const poolTotal = useMemo(
-    () => `${groupPlayers.reduce((sum, player) => sum + player.sol, 0).toFixed(2)} SOL`,
-    [groupPlayers],
-  );
-
   const historyBetIds = useMemo(
     () => new Set(historyMessages
       .map((message) => message.betId)
@@ -413,9 +453,11 @@ export function LeaderboardView() {
           acceptorKey,
           winnerKey,
           stake: parseStakeAmount(bet.stake),
+          occurredAt: inferBetTimestampMs(bet),
         };
       })
-      .filter((entry): entry is BetHistoryOutcome => Boolean(entry)),
+      .filter((entry): entry is BetHistoryOutcome => Boolean(entry))
+      .sort((a, b) => a.occurredAt - b.occurredAt || a.betId.localeCompare(b.betId)),
     [historyBets],
   );
 
@@ -456,6 +498,8 @@ export function LeaderboardView() {
   const betPerformance = useMemo(() => {
     type MutableBetPerformance = BetPerformance;
     const byPlayer = new Map<string, MutableBetPerformance>();
+    const runningNetByPlayer = new Map<string, number>();
+    const trendByPlayer = new Map<string, number[]>();
 
     const ensurePlayer = (key: string): MutableBetPerformance | null => {
       if (!key || key === "anyone") return null;
@@ -474,9 +518,24 @@ export function LeaderboardView() {
         totalWon: 0,
         totalLost: 0,
         net: 0,
+        trend: [0],
       };
       byPlayer.set(key, created);
+      runningNetByPlayer.set(key, 0);
+      trendByPlayer.set(key, [0]);
       return created;
+    };
+
+    const applyTrendDelta = (key: string, delta: number): void => {
+      const previous = runningNetByPlayer.get(key) ?? 0;
+      const next = previous + delta;
+      runningNetByPlayer.set(key, next);
+      const trend = trendByPlayer.get(key);
+      if (!trend) {
+        trendByPlayer.set(key, [0, next]);
+        return;
+      }
+      trend.push(next);
     };
 
     for (const outcome of resolvedOutcomes) {
@@ -489,10 +548,12 @@ export function LeaderboardView() {
       if (winner) {
         winner.wins += 1;
         winner.totalWon += outcome.stake;
+        applyTrendDelta(winner.key, outcome.stake);
       }
       if (loser) {
         loser.losses += 1;
         loser.totalLost += outcome.stake;
+        applyTrendDelta(loser.key, -outcome.stake);
       }
     }
 
@@ -501,7 +562,14 @@ export function LeaderboardView() {
         const resolved = entry.wins + entry.losses;
         const winRate = resolved > 0 ? (entry.wins / resolved) * 100 : 0;
         const net = entry.totalWon - entry.totalLost;
-        return { ...entry, resolved, winRate, net };
+        const trend = trendByPlayer.get(entry.key) ?? [0, net];
+        return {
+          ...entry,
+          resolved,
+          winRate,
+          net,
+          trend: trend.length >= 2 ? trend : [0, trend[0] ?? 0],
+        };
       })
       .filter((entry) => entry.resolved > 0)
       .sort((a, b) =>
@@ -543,27 +611,38 @@ export function LeaderboardView() {
             <Trophy size={16} style={{ color: "#FFB800" }} />
           </div>
           <div>
-            <p className="text-foreground" style={{ fontSize: "15px", fontWeight: 700 }}>Group Leaderboard</p>
+            <Mono
+              className="text-muted-foreground uppercase block"
+              style={{ fontSize: "9px", letterSpacing: "0.1em" } as React.CSSProperties}
+            >
+              Leaderboard
+            </Mono>
+            <p className="text-foreground" style={{ fontSize: "15px", fontWeight: 700 }}>Group standings (SOL balance)</p>
             <p className="text-muted-foreground" style={{ fontSize: "11px" }}>
               {activeGroup
-                ? `${sorted.length} players in ${activeGroup.name} · ${playersLive ? "live leaderboard" : "waiting for leaderboard data"} · ${historyLive ? "chat history synced" : "chat history pending"}`
+                ? `${sorted.length} ranked players in ${activeGroup.name} · ${playersLive ? "leaderboard live" : "leaderboard pending"} · ${historyLive ? "history synced" : "history pending"}`
                 : groups.length
-                  ? "Select a group to view its leaderboard"
+                  ? "Choose a group to view rankings"
                   : groupsLive
                     ? "No groups joined yet"
                     : "waiting for group data"}
             </p>
           </div>
         </div>
-
-        <div className="w-56">
+        <div className="w-56 space-y-1">
+          <Mono
+            className="text-muted-foreground uppercase block"
+            style={{ fontSize: "9px", letterSpacing: "0.1em" } as React.CSSProperties}
+          >
+            Group filter
+          </Mono>
           <Select
             value={activeGroupId}
             onValueChange={setActiveGroupId}
             disabled={groups.length === 0}
           >
             <SelectTrigger className="h-9">
-              <SelectValue placeholder="Select your group" />
+              <SelectValue placeholder="Choose group" />
             </SelectTrigger>
             <SelectContent>
               {groups.map((group) => (
@@ -660,7 +739,7 @@ export function LeaderboardView() {
             <div className="space-y-2">
               {betPerformance.length === 0 && (
                 <Mono className="text-muted-foreground block" style={{ fontSize: "10px" } as React.CSSProperties}>
-                  Resolve a few bets in chat to populate win-rate bars and payout totals.
+                  Resolve a few bets in chat to populate trend lines and payout totals.
                 </Mono>
               )}
 
@@ -694,8 +773,11 @@ export function LeaderboardView() {
                       </Mono>
                     </div>
                   </div>
-                  <div className="mt-2">
-                    <WinRateBar winRate={entry.winRate} />
+                  <div className="mt-2 flex items-center justify-between gap-2">
+                    <WinRateTrend points={entry.trend} />
+                    <Mono className="text-muted-foreground shrink-0" style={{ fontSize: "10px" } as React.CSSProperties}>
+                      {entry.winRate.toFixed(0)}%
+                    </Mono>
                   </div>
                 </div>
               ))}
@@ -704,142 +786,127 @@ export function LeaderboardView() {
         </div>
       )}
 
-      {/* Column headers */}
-      <div
-        className="grid px-5 py-2 border-b border-border gap-3"
-        style={{ gridTemplateColumns: "36px 1fr 140px 160px 220px" }}
-      >
-        {["Rank", "Player", "SOL Balance", "Net Change", "Bet Metrics"].map((header) => (
-          <Mono key={header} className="text-muted-foreground uppercase" style={{ fontSize: "9px", letterSpacing: "0.1em" } as React.CSSProperties}>
-            {header}
-          </Mono>
-        ))}
-      </div>
-
-      {/* Rows */}
-      <div className="divide-y divide-border">
-        {!activeGroup && (
-          <div className="px-5 py-10 flex items-center justify-center">
-            <Mono className="text-muted-foreground" style={{ fontSize: "11px" } as React.CSSProperties}>
-              Join a group chat to view group-specific rankings.
-            </Mono>
+      <div className="overflow-x-auto">
+        <div style={{ minWidth: 700 }}>
+          {/* Column headers */}
+          <div
+            className="grid px-5 py-2 border-b border-border gap-3"
+            style={{ gridTemplateColumns: "36px 1fr 130px 150px 210px" }}
+          >
+            {["Rank", "Player", "SOL Balance", "Net Change", "Bet Metrics"].map((header) => (
+              <Mono key={header} className="text-muted-foreground uppercase" style={{ fontSize: "9px", letterSpacing: "0.1em" } as React.CSSProperties}>
+                {header}
+              </Mono>
+            ))}
           </div>
-        )}
-        {activeGroup && sorted.length === 0 && (
-          <div className="px-5 py-10 flex items-center justify-center">
-            <Mono className="text-muted-foreground" style={{ fontSize: "11px" } as React.CSSProperties}>
-              No leaderboard profiles available for this group yet.
-            </Mono>
-          </div>
-        )}
-        {activeGroup && sorted.length > 0 && (
-          <AnimatePresence>
-            {sorted.map((player, idx) => {
-              const isFirst = idx === 0;
-              const playerStats = betPerformanceByKey.get(normalizeHandle(player.github))
-                ?? betPerformanceByKey.get(normalizeHandle(player.name))
-                ?? null;
-              return (
-                <motion.div
-                  key={`${activeGroup.id}-${player.github}`}
-                  layout
-                  initial={{ opacity: 0, x: -8 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  exit={{ opacity: 0 }}
-                  transition={{ duration: 0.22, delay: idx * 0.03 }}
-                  className="grid items-center px-5 py-3.5 gap-3 group hover:bg-muted/30 transition-colors duration-100"
-                  style={{
-                    gridTemplateColumns: "36px 1fr 140px 160px 220px",
-                    background: isFirst ? "rgba(255,184,0,0.04)" : undefined,
-                  }}
-                >
-                  {/* Rank */}
-                  <div className="flex items-center justify-center">
-                    <RankBadge rank={idx + 1} />
-                  </div>
 
-                  {/* Player */}
-                  <div className="flex items-center gap-2.5 min-w-0">
-                    <Avatar initials={player.initials} size={32} />
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        <span className="text-foreground truncate"
-                          style={{ fontSize: "13px", fontWeight: 600 }}>
-                          {player.name}
-                        </span>
-                        {player.streak >= 3 && (
-                          <motion.span
-                            animate={{ scale: [1, 1.12, 1] }}
-                            transition={{ repeat: Infinity, duration: 2.5 }}
-                            className="flex items-center gap-0.5 px-1.5 py-0.5 rounded-md shrink-0"
-                            style={{
-                              background: "rgba(255,74,74,0.12)",
-                              border: "1px solid rgba(255,74,74,0.2)",
-                              fontSize: "9px",
-                              fontFamily: "'JetBrains Mono', monospace",
-                              color: "#FF4A4A",
-                            }}
-                          >
-                            <Flame size={8} /> {player.streak}
-                          </motion.span>
-                        )}
+          {/* Rows */}
+          <div className="divide-y divide-border">
+            {!activeGroup && (
+              <div className="px-5 py-10 flex items-center justify-center">
+                <Mono className="text-muted-foreground" style={{ fontSize: "11px" } as React.CSSProperties}>
+                  Join a group chat to view group-specific rankings.
+                </Mono>
+              </div>
+            )}
+            {activeGroup && sorted.length === 0 && (
+              <div className="px-5 py-10 flex items-center justify-center">
+                <Mono className="text-muted-foreground" style={{ fontSize: "11px" } as React.CSSProperties}>
+                  No leaderboard profiles available for this group yet.
+                </Mono>
+              </div>
+            )}
+            {activeGroup && sorted.length > 0 && (
+              <AnimatePresence>
+                {sorted.map((player, idx) => {
+                  const isFirst = idx === 0;
+                  const playerStats = betPerformanceByKey.get(normalizeHandle(player.github))
+                    ?? betPerformanceByKey.get(normalizeHandle(player.name))
+                    ?? null;
+                  return (
+                    <motion.div
+                      key={`${activeGroup.id}-${player.github}`}
+                      layout
+                      initial={{ opacity: 0, x: -8 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      exit={{ opacity: 0 }}
+                      transition={{ duration: 0.22, delay: idx * 0.03 }}
+                      className="grid items-center px-5 py-3.5 gap-3 group hover:bg-muted/30 transition-colors duration-100"
+                      style={{
+                        gridTemplateColumns: "36px 1fr 130px 150px 210px",
+                        background: isFirst ? "rgba(255,184,0,0.04)" : undefined,
+                      }}
+                    >
+                      {/* Rank */}
+                      <div className="flex items-center justify-center">
+                        <RankBadge rank={idx + 1} />
                       </div>
-                      <a
-                        href="#"
-                        className="flex items-center gap-1 text-muted-foreground hover:text-primary transition-colors"
-                        style={{ fontSize: "10px" }}
-                      >
-                        <Github size={9} />
-                        <Mono style={{ fontSize: "10px" } as React.CSSProperties}>@{player.github}</Mono>
-                      </a>
-                    </div>
-                  </div>
 
-                  {/* Balance */}
-                  <div>
-                    <Mono className="text-foreground"
-                      style={{ fontSize: "15px", fontWeight: 700 } as React.CSSProperties}>
-                      {player.sol.toFixed(2)}
-                    </Mono>
-                    <Mono className="text-muted-foreground" style={{ fontSize: "9px" } as React.CSSProperties}>
-                      SOL
-                    </Mono>
-                  </div>
+                      {/* Player */}
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <Avatar initials={player.initials} size={32} />
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="text-foreground truncate"
+                              style={{ fontSize: "13px", fontWeight: 600 }}>
+                              {player.name}
+                            </span>
+                            {player.streak >= 3 && (
+                              <motion.span
+                                animate={{ scale: [1, 1.12, 1] }}
+                                transition={{ repeat: Infinity, duration: 2.5 }}
+                                className="flex items-center gap-0.5 px-1.5 py-0.5 rounded-md shrink-0"
+                                style={{
+                                  background: "rgba(255,74,74,0.12)",
+                                  border: "1px solid rgba(255,74,74,0.2)",
+                                  fontSize: "9px",
+                                  fontFamily: "'JetBrains Mono', monospace",
+                                  color: "#FF4A4A",
+                                }}
+                              >
+                                <Flame size={8} /> {player.streak}
+                              </motion.span>
+                            )}
+                          </div>
+                          <a
+                            href="#"
+                            className="flex items-center gap-1 text-muted-foreground hover:text-primary transition-colors"
+                            style={{ fontSize: "10px" }}
+                          >
+                            <Github size={9} />
+                            <Mono style={{ fontSize: "10px" } as React.CSSProperties}>@{player.github}</Mono>
+                          </a>
+                        </div>
+                      </div>
 
-                  {/* Delta */}
-                  <Delta
-                    value={player.solDelta}
-                    unit="SOL"
-                  />
+                      {/* Balance */}
+                      <div>
+                        <Mono className="text-foreground"
+                          style={{ fontSize: "15px", fontWeight: 700 } as React.CSSProperties}>
+                          {player.sol.toFixed(2)}
+                        </Mono>
+                        <Mono className="text-muted-foreground" style={{ fontSize: "9px" } as React.CSSProperties}>
+                          SOL
+                        </Mono>
+                      </div>
 
-                  {/* Bet metrics */}
-                  <BetMetricsCell
-                    stats={playerStats}
-                    currency={displayCurrency}
-                  />
-                </motion.div>
-              );
-            })}
-          </AnimatePresence>
-        )}
-      </div>
+                      {/* Delta */}
+                      <Delta
+                        value={player.solDelta}
+                        unit="SOL"
+                      />
 
-      {/* Footer */}
-      <div
-        className="px-5 py-3 border-t border-border flex items-center justify-between"
-        style={{ background: "var(--muted)" }}
-      >
-        <div className="flex items-center gap-1.5">
-          <Activity size={11} className="text-muted-foreground" />
-          <Mono className="text-muted-foreground" style={{ fontSize: "10px" } as React.CSSProperties}>
-            POOL TOTAL: {poolTotal}
-          </Mono>
-        </div>
-        <div className="flex items-center gap-1.5">
-          <span className="w-1.5 h-1.5 rounded-full inline-block animate-pulse" style={{ background: "#14F195" }} />
-          <Mono className="text-muted-foreground" style={{ fontSize: "10px" } as React.CSSProperties}>
-            LIVE · refreshes every 3s
-          </Mono>
+                      {/* Bet metrics */}
+                      <BetMetricsCell
+                        stats={playerStats}
+                        currency={displayCurrency}
+                      />
+                    </motion.div>
+                  );
+                })}
+              </AnimatePresence>
+            )}
+          </div>
         </div>
       </div>
     </Card>

@@ -179,8 +179,8 @@ export function EscrowBetCard() {
 
       {/* Split panel */}
       <div className="grid grid-cols-2 gap-3">
-        <StakeDisplay amount="5000 POINTS" currency="$PALS ECONOMY" side="challenger" />
-        <StakeDisplay amount="5000 POINTS" currency="$PALS ECONOMY" side="acceptor" />
+        <StakeDisplay amount="0.50 SOL" currency="SOL" side="challenger" />
+        <StakeDisplay amount="0.50 SOL" currency="SOL" side="acceptor" />
       </div>
 
       {/* Witness Tray */}

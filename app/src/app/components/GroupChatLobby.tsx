@@ -41,7 +41,7 @@ const betCards: BetCard[] = [
     challenger: "Kevin",
     acceptor: "Matt",
     terms: "Kevin wagers Matt that Matt cannot run a 5k tomorrow morning",
-    stake: "500 POINTS",
+    stake: "0.05 SOL",
     status: "PENDING",
     witnesses: 2,
     minBettors: 2,
@@ -255,7 +255,7 @@ export function GroupChatLobby() {
                 <div className="flex flex-col items-start gap-1">
                   <span className="text-muted-foreground flex items-center gap-1" style={{ fontSize: "11px" }}>
                     <Zap size={10} className="text-[#9945FF]" />
-                    AccountabiliBuddy dropped a bet card
+                    BAAM dropped a bet card
                   </span>
                   <EmbeddedBetCard bet={msg.betCard} />
                 </div>

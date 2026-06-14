@@ -120,7 +120,6 @@ export interface ProfileDoc {
   initials: string;
   github: string;
   bio?: string;
-  pals: number;
   sol: number;
   wins: number;
   disputes: number;
@@ -138,8 +137,6 @@ export interface PlayerDoc {
   name: string;
   initials: string;
   github: string;
-  pals: number;
-  palsDelta: number;
   sol: number;
   solDelta: number;
   wins: number;
@@ -164,6 +161,8 @@ export interface UserDoc {
   walletPubkey?: string;
   /** AES-GCM encrypted secret key for the custodial wallet. Never sent to clients. */
   walletSecret?: string;
+  /** Opaque identifiers supplied by Messages.framework; never phone numbers or Apple IDs. */
+  imessageParticipantIds?: string[];
 }
 
 // ── lazy singleton connection ──────────────────────────────────────────────────
@@ -240,6 +239,7 @@ async function ensureIndexes(db: Db): Promise<void> {
   await db.collection("players").createIndex({ github: 1 }, { unique: true });
   await db.collection("users").createIndex({ emailLower: 1 }, { unique: true });
   await db.collection("users").createIndex({ usernameLower: 1 }, { unique: true });
+  await db.collection("users").createIndex({ imessageParticipantIds: 1 }, { unique: true, sparse: true });
   await db.collection("profiles").createIndex({ id: 1 }, { unique: true });
   await db.collection("profiles").createIndex({ github: 1 }, { unique: true });
 }

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "motion/react";
 import {
@@ -65,7 +65,24 @@ export function SendBetModal({
   const [stake,    setStake]    = useState("");
   const [sent,     setSent]     = useState(false);
   const inputRef   = useRef<HTMLTextAreaElement>(null);
-  const hasChallengeTargets = groupMembers.length > 0;
+  const challengeTargets = useMemo(() => {
+    const seen = new Set<string>();
+    const deduped: { name: string; initials: string }[] = [];
+    for (const member of groupMembers) {
+      const name = member.name.trim();
+      if (!name) continue;
+      const key = name.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      deduped.push({ name, initials: member.initials });
+    }
+    return deduped;
+  }, [groupMembers]);
+  const hasChallengeTargets = challengeTargets.length > 0;
+  const selectedAcceptor = challengeTargets.find(
+    (member) => member.name.toLowerCase() === acceptor.trim().toLowerCase(),
+  )?.name ?? "";
+  const hasSelectedAcceptor = selectedAcceptor.length > 0;
 
   // ── sports bet picker state ──────────────────────────────
   const [sport,        setSport]        = useState<SportKind>("nba");
@@ -112,22 +129,26 @@ export function SendBetModal({
       setTimeout(() => inputRef.current?.focus(), 120);
     }
   }, [step, isSports]);
+  useEffect(() => {
+    if (!acceptor) return;
+    if (!hasSelectedAcceptor) setAcceptor("");
+  }, [acceptor, hasSelectedAcceptor]);
 
   const canStep1 = hasChallengeTargets && (
     isSports ? selectedGame !== null
-    : acceptor.trim().length > 0
+    : hasSelectedAcceptor
   );
   const canStep2 = isSports ? selectedGame !== null : terms.trim().length > 8;
   const canStep3 = stake.trim().length > 0 && Number(stake) > 0;
   const summaryAcceptor = isSports ? (acceptor.trim() || "Anyone") : acceptor.trim();
 
   function handleSend() {
-    if (!hasChallengeTargets) return;
+    if (!hasChallengeTargets || (!isSports && !hasSelectedAcceptor) || (isSports && !selectedGame)) return;
     setSent(true);
     onSend({
       type:     betType,
       challenger: "Me",
-      acceptor: betType === "DEV" ? (acceptor || "anyone") : acceptor,
+      acceptor: isSports ? (selectedAcceptor || "anyone") : selectedAcceptor,
       terms:    isSports ? sportsTerms : terms.trim(),
       stake:    stake,
       currency: "SOL",
@@ -409,44 +430,44 @@ export function SendBetModal({
                       </motion.div>
                     )}
 
-                    {/* Acceptor picker — PERSONAL only */}
-                    {betType === "PERSONAL" && (
-                      <motion.div
-                        initial={{ opacity: 0, y: 8 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        className="space-y-2"
-                      >
-                        <Mono className="text-muted-foreground uppercase" style={{ fontSize: "9px", letterSpacing: "0.1em" } as React.CSSProperties}>
-                          Challenge who?
-                        </Mono>
-                        <div className="flex flex-wrap gap-2">
-                          {groupMembers.map(m => (
+                    <motion.div
+                      initial={{ opacity: 0, y: 8 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="space-y-2"
+                    >
+                      <Mono className="text-muted-foreground uppercase" style={{ fontSize: "9px", letterSpacing: "0.1em" } as React.CSSProperties}>
+                        Challenge who?
+                      </Mono>
+                      <div className="flex flex-wrap gap-2">
+                        {challengeTargets.map((member) => {
+                          const isSelected = selectedAcceptor.toLowerCase() === member.name.toLowerCase();
+                          return (
                             <motion.button
-                              key={m.name}
+                              key={member.name}
                               whileHover={{ scale: 1.04 }}
                               whileTap={{ scale: 0.95 }}
-                              onClick={() => setAcceptor(m.name)}
+                              onClick={() => setAcceptor(member.name)}
                               className="flex items-center gap-2 px-3 py-1.5 rounded-xl border transition-all duration-150"
                               style={{
-                                background:  acceptor === m.name ? "rgba(153,69,255,0.1)" : "var(--muted)",
-                                borderColor: acceptor === m.name ? "rgba(153,69,255,0.4)" : "var(--border)",
-                                color:       acceptor === m.name ? "#9945FF" : "var(--muted-foreground)",
+                                background:  isSelected ? "rgba(153,69,255,0.1)" : "var(--muted)",
+                                borderColor: isSelected ? "rgba(153,69,255,0.4)" : "var(--border)",
+                                color:       isSelected ? "#9945FF" : "var(--muted-foreground)",
                                 fontSize:    "12px",
-                                fontWeight:  acceptor === m.name ? 700 : 400,
+                                fontWeight:  isSelected ? 700 : 400,
                               }}
                             >
-                              <Avatar initials={m.initials} size={20} />
-                              {m.name}
+                              <Avatar initials={member.initials} size={20} />
+                              {member.name}
                             </motion.button>
-                          ))}
-                          {!groupMembers.length && (
-                            <span className="text-muted-foreground" style={{ fontSize: "11px" }}>
-                              No members available to challenge in this group yet.
-                            </span>
-                          )}
-                        </div>
-                      </motion.div>
-                    )}
+                          );
+                        })}
+                        {!challengeTargets.length && (
+                          <span className="text-muted-foreground" style={{ fontSize: "11px" }}>
+                            No members available to challenge in this group yet.
+                          </span>
+                        )}
+                      </div>
+                    </motion.div>
                   </motion.div>
                 )}
 

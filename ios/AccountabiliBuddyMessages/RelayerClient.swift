@@ -77,6 +77,27 @@ final class RelayerClient {
         )
     }
 
+    func linkParticipant(_ participantId: String) async throws {
+        struct LinkBody: Codable { let participantId: String }
+        _ = try await requestJSON(
+            method: "POST",
+            path: "/imessage/participants/link",
+            body: LinkBody(participantId: participantId),
+            responseType: MessageParticipantLinkResponse.self
+        )
+    }
+
+    func resolveParticipants(_ participantIds: [String]) async throws -> [MessageResolvedParticipant] {
+        struct ResolveBody: Codable { let participantIds: [String] }
+        let response: MessageParticipantsResponse = try await requestJSON(
+            method: "POST",
+            path: "/imessage/participants/resolve",
+            body: ResolveBody(participantIds: participantIds),
+            responseType: MessageParticipantsResponse.self
+        )
+        return response.participants
+    }
+
     func createBet(_ request: MessageCreateBetRequest) async throws -> MessageCreateBetResponse {
         try await requestJSON(
             method: "POST",

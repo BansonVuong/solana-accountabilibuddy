@@ -153,3 +153,17 @@ struct MessageProfile: Codable {
     let wallet: String
     let solBalance: Double
 }
+
+struct MessageParticipantLinkResponse: Codable {
+    let linked: Bool
+    let username: String
+}
+
+struct MessageResolvedParticipant: Codable {
+    let participantId: String
+    let username: String
+}
+
+struct MessageParticipantsResponse: Codable {
+    let participants: [MessageResolvedParticipant]
+}
