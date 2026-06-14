@@ -818,6 +818,9 @@ export function ChatView({
       // e.g. 2->2, 3->2, 4->2, 5->3, 6->3.
       witnesses: Math.max(2, Math.ceil(activeGroupData.members / 2)),
       minBettors: 2,
+      // Witness bets require a future resolve-by deadline (the relayer enforces this
+      // and fires the unresolved fallback after it). Default to one week out.
+      resolveByDate: Date.now() + 7 * 24 * 60 * 60 * 1000,
       // DEV "sports" bets: settled by the ESPN scraper instead of witnesses.
       ...(bet.sport ? {
         sport: bet.sport,

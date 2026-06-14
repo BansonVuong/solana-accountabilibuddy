@@ -368,6 +368,10 @@ export function createBet(input: {
   currency: "SOL";
   witnesses?: number;
   minBettors?: number;
+  /** Witness (non-sports) bets: unix-ms deadline after which the unresolved fallback fires. */
+  resolveByDate?: number;
+  /** Witness (non-sports) bets: unix-ms accept deadline; omit/null for indefinite. */
+  acceptByDate?: number | null;
   // DEV "sports" bets: settled by the ESPN scraper.
   sport?: SportKind;
   gameId?: string;
