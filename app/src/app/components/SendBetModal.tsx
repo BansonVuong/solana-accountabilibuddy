@@ -92,7 +92,7 @@ export function SendBetModal({
     }
   }, [open]);
 
-  /* load today's games whenever the sports picker is active and the sport changes */
+  /* load upcoming games whenever the sports picker is active and the sport changes */
   useEffect(() => {
     if (!open || !isSports) return;
     let alive = true;
@@ -344,6 +344,14 @@ export function SendBetModal({
                             )}
                             {games.map(g => {
                               const picked = selectedGame?.gameId === g.gameId;
+                              const kickoffLabel = g.startTime
+                                ? new Date(g.startTime).toLocaleString([], {
+                                    month: "short",
+                                    day: "numeric",
+                                    hour: "numeric",
+                                    minute: "2-digit",
+                                  })
+                                : null;
                               return (
                                 <button
                                   key={g.gameId}
@@ -360,7 +368,7 @@ export function SendBetModal({
                                       {g.awayTeam} @ {g.homeTeam}
                                     </span>
                                     <Mono className="text-muted-foreground shrink-0" style={{ fontSize: "9px" } as React.CSSProperties}>
-                                      {g.isFinal ? "FINAL" : (g.status || "—")}
+                                        {kickoffLabel ?? (g.isFinal ? "FINAL" : (g.status || "—"))}
                                     </Mono>
                                   </div>
                                 </button>
