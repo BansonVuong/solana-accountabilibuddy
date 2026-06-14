@@ -645,15 +645,7 @@ export function ChatView({
     if (!activeGroup || typeof window === "undefined") return;
     const targetBetId = pendingRequestedBetIdRef.current;
     if (!targetBetId) return;
-    if (!messages.some((message) => message.betId === targetBetId)) {
-      pendingRequestedBetIdRef.current = null;
-      const frameId = window.requestAnimationFrame(() => {
-        bottomRef.current?.scrollIntoView({ block: "end" });
-      });
-      return () => {
-        window.cancelAnimationFrame(frameId);
-      };
-    }
+    if (!messages.some((message) => message.betId === targetBetId)) return;
     const targetNode = messageListRef.current?.querySelector<HTMLElement>(`[data-bet-id="${targetBetId}"]`);
     if (!targetNode) return;
     const frameId = window.requestAnimationFrame(() => {
