@@ -7,13 +7,13 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		AA0000000000000000000020 /* AccountabiliBuddyApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000010 /* AccountabiliBuddyApp.swift */; };
-		AA0000000000000000000021 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000011 /* ContentView.swift */; };
-		AA0000000000000000000022 /* MessagesViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000013 /* MessagesViewController.swift */; };
-		AA0000000000000000000023 /* BetModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000014 /* BetModels.swift */; };
-		AA0000000000000000000024 /* RelayerClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000015 /* RelayerClient.swift */; };
-		AA0000000000000000000025 /* BetMessageViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000016 /* BetMessageViewModel.swift */; };
-		AA0000000000000000000026 /* BetMessageRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000017 /* BetMessageRootView.swift */; };
+		AA0000000000000000000020 /* AccountabiliBuddyiOS/AccountabiliBuddyApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000010 /* AccountabiliBuddyiOS/AccountabiliBuddyApp.swift */; };
+		AA0000000000000000000021 /* AccountabiliBuddyiOS/ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000011 /* AccountabiliBuddyiOS/ContentView.swift */; };
+		AA0000000000000000000022 /* AccountabiliBuddyMessages/MessagesViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000013 /* AccountabiliBuddyMessages/MessagesViewController.swift */; };
+		AA0000000000000000000023 /* AccountabiliBuddyMessages/BetModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000014 /* AccountabiliBuddyMessages/BetModels.swift */; };
+		AA0000000000000000000024 /* AccountabiliBuddyMessages/RelayerClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000015 /* AccountabiliBuddyMessages/RelayerClient.swift */; };
+		AA0000000000000000000025 /* AccountabiliBuddyMessages/BetMessageViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000016 /* AccountabiliBuddyMessages/BetMessageViewModel.swift */; };
+		AA0000000000000000000026 /* AccountabiliBuddyMessages/BetMessageRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000017 /* AccountabiliBuddyMessages/BetMessageRootView.swift */; };
 		AA0000000000000000000027 /* AccountabiliBuddyMessages.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = AA000000000000000000001A /* AccountabiliBuddyMessages.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
@@ -42,15 +42,15 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
-		AA0000000000000000000010 /* AccountabiliBuddyApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountabiliBuddyiOS/AccountabiliBuddyApp.swift; sourceTree = "<group>"; };
-		AA0000000000000000000011 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountabiliBuddyiOS/ContentView.swift; sourceTree = "<group>"; };
-		AA0000000000000000000012 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = AccountabiliBuddyiOS/Info.plist; sourceTree = "<group>"; };
-		AA0000000000000000000013 /* MessagesViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountabiliBuddyMessages/MessagesViewController.swift; sourceTree = "<group>"; };
-		AA0000000000000000000014 /* BetModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountabiliBuddyMessages/BetModels.swift; sourceTree = "<group>"; };
-		AA0000000000000000000015 /* RelayerClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountabiliBuddyMessages/RelayerClient.swift; sourceTree = "<group>"; };
-		AA0000000000000000000016 /* BetMessageViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountabiliBuddyMessages/BetMessageViewModel.swift; sourceTree = "<group>"; };
-		AA0000000000000000000017 /* BetMessageRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountabiliBuddyMessages/BetMessageRootView.swift; sourceTree = "<group>"; };
-		AA0000000000000000000018 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = AccountabiliBuddyMessages/Info.plist; sourceTree = "<group>"; };
+		AA0000000000000000000010 /* AccountabiliBuddyiOS/AccountabiliBuddyApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountabiliBuddyiOS/AccountabiliBuddyApp.swift; sourceTree = "<group>"; };
+		AA0000000000000000000011 /* AccountabiliBuddyiOS/ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountabiliBuddyiOS/ContentView.swift; sourceTree = "<group>"; };
+		AA0000000000000000000012 /* AccountabiliBuddyiOS/Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = AccountabiliBuddyiOS/Info.plist; sourceTree = "<group>"; };
+		AA0000000000000000000013 /* AccountabiliBuddyMessages/MessagesViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountabiliBuddyMessages/MessagesViewController.swift; sourceTree = "<group>"; };
+		AA0000000000000000000014 /* AccountabiliBuddyMessages/BetModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountabiliBuddyMessages/BetModels.swift; sourceTree = "<group>"; };
+		AA0000000000000000000015 /* AccountabiliBuddyMessages/RelayerClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountabiliBuddyMessages/RelayerClient.swift; sourceTree = "<group>"; };
+		AA0000000000000000000016 /* AccountabiliBuddyMessages/BetMessageViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountabiliBuddyMessages/BetMessageViewModel.swift; sourceTree = "<group>"; };
+		AA0000000000000000000017 /* AccountabiliBuddyMessages/BetMessageRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountabiliBuddyMessages/BetMessageRootView.swift; sourceTree = "<group>"; };
+		AA0000000000000000000018 /* AccountabiliBuddyMessages/Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = AccountabiliBuddyMessages/Info.plist; sourceTree = "<group>"; };
 		AA0000000000000000000019 /* AccountabiliBuddy.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AccountabiliBuddy.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		AA000000000000000000001A /* AccountabiliBuddyMessages.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = AccountabiliBuddyMessages.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -94,9 +94,9 @@
 		AA0000000000000000000004 /* AccountabiliBuddyiOS */ = {
 			isa = PBXGroup;
 			children = (
-				AA0000000000000000000010 /* AccountabiliBuddyApp.swift */,
-				AA0000000000000000000011 /* ContentView.swift */,
-				AA0000000000000000000012 /* Info.plist */,
+				AA0000000000000000000010 /* AccountabiliBuddyiOS/AccountabiliBuddyApp.swift */,
+				AA0000000000000000000011 /* AccountabiliBuddyiOS/ContentView.swift */,
+				AA0000000000000000000012 /* AccountabiliBuddyiOS/Info.plist */,
 			);
 			name = AccountabiliBuddyiOS;
 			sourceTree = "<group>";
@@ -104,12 +104,12 @@
 		AA0000000000000000000005 /* AccountabiliBuddyMessages */ = {
 			isa = PBXGroup;
 			children = (
-				AA0000000000000000000013 /* MessagesViewController.swift */,
-				AA0000000000000000000014 /* BetModels.swift */,
-				AA0000000000000000000015 /* RelayerClient.swift */,
-				AA0000000000000000000016 /* BetMessageViewModel.swift */,
-				AA0000000000000000000017 /* BetMessageRootView.swift */,
-				AA0000000000000000000018 /* Info.plist */,
+				AA0000000000000000000013 /* AccountabiliBuddyMessages/MessagesViewController.swift */,
+				AA0000000000000000000014 /* AccountabiliBuddyMessages/BetModels.swift */,
+				AA0000000000000000000015 /* AccountabiliBuddyMessages/RelayerClient.swift */,
+				AA0000000000000000000016 /* AccountabiliBuddyMessages/BetMessageViewModel.swift */,
+				AA0000000000000000000017 /* AccountabiliBuddyMessages/BetMessageRootView.swift */,
+				AA0000000000000000000018 /* AccountabiliBuddyMessages/Info.plist */,
 			);
 			name = AccountabiliBuddyMessages;
 			sourceTree = "<group>";
@@ -210,8 +210,8 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				AA0000000000000000000020 /* AccountabiliBuddyApp.swift in Sources */,
-				AA0000000000000000000021 /* ContentView.swift in Sources */,
+				AA0000000000000000000020 /* AccountabiliBuddyiOS/AccountabiliBuddyApp.swift in Sources */,
+				AA0000000000000000000021 /* AccountabiliBuddyiOS/ContentView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -219,11 +219,11 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				AA0000000000000000000022 /* MessagesViewController.swift in Sources */,
-				AA0000000000000000000023 /* BetModels.swift in Sources */,
-				AA0000000000000000000024 /* RelayerClient.swift in Sources */,
-				AA0000000000000000000025 /* BetMessageViewModel.swift in Sources */,
-				AA0000000000000000000026 /* BetMessageRootView.swift in Sources */,
+				AA0000000000000000000022 /* AccountabiliBuddyMessages/MessagesViewController.swift in Sources */,
+				AA0000000000000000000023 /* AccountabiliBuddyMessages/BetModels.swift in Sources */,
+				AA0000000000000000000024 /* AccountabiliBuddyMessages/RelayerClient.swift in Sources */,
+				AA0000000000000000000025 /* AccountabiliBuddyMessages/BetMessageViewModel.swift in Sources */,
+				AA0000000000000000000026 /* AccountabiliBuddyMessages/BetMessageRootView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -257,9 +257,11 @@
 		AA0000000000000000000052 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				CODE_SIGNING_ALLOWED = NO;
-				CODE_SIGNING_REQUIRED = NO;
+				CODE_SIGNING_ALLOWED = YES;
+				CODE_SIGNING_REQUIRED = YES;
 				CURRENT_PROJECT_VERSION = 1;
+				CODE_SIGN_STYLE = Automatic;
+					DEVELOPMENT_TEAM = 772P6G5MXC;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = AccountabiliBuddyiOS/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
@@ -279,9 +281,11 @@
 		AA0000000000000000000053 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				CODE_SIGNING_ALLOWED = NO;
-				CODE_SIGNING_REQUIRED = NO;
+				CODE_SIGNING_ALLOWED = YES;
+				CODE_SIGNING_REQUIRED = YES;
 				CURRENT_PROJECT_VERSION = 1;
+				CODE_SIGN_STYLE = Automatic;
+					DEVELOPMENT_TEAM = 772P6G5MXC;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = AccountabiliBuddyiOS/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
@@ -302,8 +306,10 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				APPLICATION_EXTENSION_API_ONLY = YES;
-				CODE_SIGNING_ALLOWED = NO;
-				CODE_SIGNING_REQUIRED = NO;
+					CODE_SIGN_STYLE = Automatic;
+					DEVELOPMENT_TEAM = 772P6G5MXC;
+				CODE_SIGNING_ALLOWED = YES;
+				CODE_SIGNING_REQUIRED = YES;
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = AccountabiliBuddyMessages/Info.plist;
@@ -327,8 +333,10 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				APPLICATION_EXTENSION_API_ONLY = YES;
-				CODE_SIGNING_ALLOWED = NO;
-				CODE_SIGNING_REQUIRED = NO;
+					CODE_SIGN_STYLE = Automatic;
+					DEVELOPMENT_TEAM = 772P6G5MXC;
+				CODE_SIGNING_ALLOWED = YES;
+				CODE_SIGNING_REQUIRED = YES;
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = AccountabiliBuddyMessages/Info.plist;
