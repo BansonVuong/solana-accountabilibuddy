@@ -86,7 +86,7 @@ function StatusBar() {
       <Mono className="text-muted-foreground" style={{ fontSize: "9px" } as React.CSSProperties}>
         COMMIT{" "}
         <a
-          href={`https://github.com/BansonVuong/solana-accountabilibuddy/commit/${__GIT_COMMIT__}`}
+          href={`https://github.com/BansonVuong/solana-BAAM/commit/${__GIT_COMMIT__}`}
           target="_blank"
           rel="noreferrer"
           className="underline hover:text-foreground transition-colors"
@@ -281,10 +281,10 @@ export default function App() {
   });
   const activeNav = nav.find((n) => n.id === activeView)!;
   const groupNotificationStorageKey = authUser
-    ? `accountabilibuddy_group_notifications_${authUser.username.toLowerCase()}`
+    ? `BAAM_group_notifications_${authUser.username.toLowerCase()}`
     : null;
   const seenGroupsStorageKey = authUser
-    ? `accountabilibuddy_seen_group_ids_${authUser.username.toLowerCase()}`
+    ? `BAAM_seen_group_ids_${authUser.username.toLowerCase()}`
     : null;
   const sortedGroupNotifications = useMemo(
     () => [...groupNotifications].sort((a, b) => b.createdAt - a.createdAt),
@@ -601,7 +601,7 @@ export default function App() {
                 }`
               : failed
                 ? discordLinkError ?? "Something went wrong. Please try /setup again in Discord."
-                : "Connecting your AccountabiliBuddy account to Discord."}
+                : "Connecting your BAAM account to Discord."}
           </p>
 
           {linked && discordLinkResult?.returnUrl && (

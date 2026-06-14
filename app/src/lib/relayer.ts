@@ -1,5 +1,5 @@
 /**
- * Thin client for the AccountabiliBuddy relayer (see ../../../relayer/index.ts).
+ * Thin client for the BAAM relayer (see ../../../relayer/index.ts).
  *
  * The relayer is the oracle/crank service that talks to the Solana
  * `accountability` program on devnet. These helpers let the dashboard show
@@ -12,7 +12,7 @@
 export const RELAYER_URL =
   (import.meta.env.VITE_RELAYER_URL as string | undefined) ??
   (import.meta.env.DEV ? "http://localhost:8787" : window.location.origin);
-export const AUTH_TOKEN_STORAGE_KEY = "accountabilibuddy_auth_token";
+export const AUTH_TOKEN_STORAGE_KEY = "BAAM_auth_token";
 const REQUEST_TIMEOUT_MS = 10_000;
 
 export interface RelayerHealth {

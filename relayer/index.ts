@@ -1011,7 +1011,7 @@ const server = http.createServer(async (req, res) => {
       const claimedBy = await col.findOne({ discordId: payload.discordId, id: { $ne: authUser.id } });
       if (claimedBy) {
         return json(res, 409, {
-          error: "This Discord account is already linked to another AccountabiliBuddy account.",
+          error: "This Discord account is already linked to another BAAM account.",
         });
       }
       if (authUser.discordId && authUser.discordId !== payload.discordId) {
@@ -1053,7 +1053,7 @@ const server = http.createServer(async (req, res) => {
       const col = await discordConversations();
       if (!col) return dbUnconfigured(res);
       const conversation = await col.findOne({ channelId: discordConvChannelId });
-      if (!conversation) return json(res, 404, { error: "no AccountabiliBuddy conversation for this channel" });
+      if (!conversation) return json(res, 404, { error: "no BAAM conversation for this channel" });
       return json(res, 200, { conversation });
     }
 

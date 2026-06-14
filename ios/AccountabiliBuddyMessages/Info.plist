@@ -13,7 +13,7 @@
 	<key>CFBundleName</key>
 	<string>$(PRODUCT_NAME)</string>
 	<key>CFBundleDisplayName</key>
-	<string>AccountabiliBuddy</string>
+	<string>BAAM</string>
 	<key>CFBundlePackageType</key>
 	<string>XPC!</string>
 	<key>CFBundleShortVersionString</key>

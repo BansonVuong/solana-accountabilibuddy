@@ -194,7 +194,7 @@ final class BetMessageViewModel: ObservableObject {
         do {
             try requireSignedIn()
             guard conversationFingerprint != nil else {
-                throw RelayerClientError.server("Open AccountabiliBuddy from an active Messages conversation.")
+                throw RelayerClientError.server("Open BAAM from an active Messages conversation.")
             }
             isBusy = true
             errorMessage = nil
@@ -209,7 +209,7 @@ final class BetMessageViewModel: ObservableObject {
             refreshRecipientCandidates()
             sendDraft(BetDraftMessage(
                 url: inviteURL,
-                title: "Join AccountabiliBuddy conversation",
+                title: "Join BAAM conversation",
                 subtitle: "@\(created.conversation.ownerUsername) initialized this conversation. Open to join.",
                 wallet: nil,
                 solBalance: nil
@@ -238,8 +238,8 @@ final class BetMessageViewModel: ObservableObject {
             persistConversationId(joined.id)
             refreshRecipientCandidates()
             infoMessage = switchedFromAnotherConversation
-                ? "Switched to and joined this AccountabiliBuddy conversation."
-                : "Joined this AccountabiliBuddy conversation."
+                ? "Switched to and joined this BAAM conversation."
+                : "Joined this BAAM conversation."
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -259,7 +259,7 @@ final class BetMessageViewModel: ObservableObject {
         }
         sendDraft(BetDraftMessage(
             url: inviteURL,
-            title: "Join AccountabiliBuddy conversation",
+            title: "Join BAAM conversation",
             subtitle: "@\(conversation.ownerUsername) initialized this conversation. Open to join.",
             wallet: nil,
             solBalance: nil

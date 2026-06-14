@@ -44,7 +44,7 @@ struct BetMessageRootView: View {
             Text(viewModel.isCreatingAccount ? "Create your account" : "Welcome back")
                 .font(.title3.weight(.semibold))
             Text(viewModel.isCreatingAccount
-                 ? "Create an AccountabiliBuddy account to send bets in Messages."
+                 ? "Create a BAAM account to send bets in Messages."
                  : "Sign in to send and manage bets without leaving Messages.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
@@ -141,7 +141,7 @@ struct BetMessageRootView: View {
             if let invite = viewModel.pendingConversation {
                 Text("Conversation invite")
                     .font(.headline)
-                Text("@\(invite.ownerUsername) invited you to join this AccountabiliBuddy conversation.")
+                Text("@\(invite.ownerUsername) invited you to join this BAAM conversation.")
                     .font(.subheadline)
                 Button {
                     Task { await viewModel.joinPendingConversation() }

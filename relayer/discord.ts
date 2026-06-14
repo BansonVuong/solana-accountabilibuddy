@@ -94,15 +94,15 @@ interface ScoreboardGame {
 export const discordCommands = [
   new SlashCommandBuilder()
     .setName("setup")
-    .setDescription("Link your AccountabiliBuddy account to Discord"),
+    .setDescription("Link your BAAM account to Discord"),
 
   new SlashCommandBuilder()
     .setName("profile")
-    .setDescription("Show your AccountabiliBuddy account and betting record"),
+    .setDescription("Show your BAAM account and betting record"),
 
   new SlashCommandBuilder()
     .setName("bet")
-    .setDescription("AccountabiliBuddy bet commands")
+    .setDescription("BAAM bet commands")
     .addSubcommand((sub) =>
       sub.setName("personal").setDescription("Create a peer accountability bet in this channel"),
     )
@@ -199,7 +199,7 @@ export async function announceDiscordLink(
       .setColor(Colors.Green)
       .setTitle("✅ Account linked")
       .setDescription(
-        `<@${payload.discordId}> linked **@${username}** to AccountabiliBuddy.\n\n` +
+        `<@${payload.discordId}> linked **@${username}** to BAAM.\n\n` +
         "Use `/bet personal` to post a bet, `/bet sports` to bet on a game, or `/profile` to view your record.",
       );
     await channel.send({ content: `<@${payload.discordId}>`, embeds: [embed] });
@@ -262,10 +262,10 @@ async function handleSetupCommand(interaction: ChatInputCommandInteraction): Pro
     embeds: [
       new EmbedBuilder()
         .setColor(Colors.Blurple)
-        .setTitle("Welcome to AccountabiliBuddy")
+        .setTitle("Welcome to BAAM")
         .setDescription(
           "Put your SOL on the line. Make bets with friends and let the blockchain hold everyone accountable.\n\n" +
-          "Click below to open AccountabiliBuddy, sign in (or create an account), and your Discord will be linked automatically. Then come back and use `/bet personal` or `/bet sports`.",
+          "Click below to open BAAM, sign in (or create an account), and your Discord will be linked automatically. Then come back and use `/bet personal` or `/bet sports`.",
         ),
     ],
     components: [buildLinkButtonRow(interaction)],
@@ -287,7 +287,7 @@ function buildLinkButtonRow(
   const url = `${WEB_BASE_URL}/?discord_link=${encodeURIComponent(code)}`;
   return new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder()
-      .setLabel("Link with AccountabiliBuddy")
+      .setLabel("Link with BAAM")
       .setStyle(ButtonStyle.Link)
       .setURL(url),
   );
@@ -1142,7 +1142,7 @@ function buildBetEmbed(bet: BetDoc, viewerUsername: string): EmbedBuilder {
 
   const embed = new EmbedBuilder()
     .setColor(statusColor[bet.status] ?? Colors.Grey)
-    .setTitle("AccountabiliBuddy Bet")
+    .setTitle("BAAM Bet")
     .addFields(
       { name: "Terms", value: bet.terms },
       { name: "Stake", value: `${bet.stake} SOL each`, inline: true },
@@ -1429,7 +1429,7 @@ async function requireLinkedUser(
   const user = await col.findOne({ discordId: interaction.user.id });
   if (!user) {
     await interaction.reply({
-      content: "You need to link your AccountabiliBuddy account first. Run `/setup`.",
+      content: "You need to link your BAAM account first. Run `/setup`.",
       ephemeral: true,
     });
     return null;
@@ -1452,7 +1452,7 @@ async function requireLinkedUserFromDiscordId(
   }
   const user = await col.findOne({ discordId: discordUserId });
   if (!user) {
-    const msg = { content: "You need to link your AccountabiliBuddy account first. Run `/setup`.", ephemeral: true };
+    const msg = { content: "You need to link your BAAM account first. Run `/setup`.", ephemeral: true };
     if (interaction.deferred || interaction.replied) {
       await interaction.followUp(msg);
     } else {

@@ -1,6 +1,6 @@
-# AccountabiliBuddy — Dashboard
+# BAAM — Dashboard
 
-Frontend for the AccountabiliBuddy social prediction / accountability-bet
+Frontend for the BAAM social prediction / accountability-bet
 platform (the Figma "Design Social Prediction Dashboard"). React + Vite +
 Tailwind v4, with four views: Group Chat, Escrow Card, Dev Bet (AI Git
 Inspector) and Leaderboard.

@@ -498,7 +498,7 @@ export function ChatView({
   const pendingRequestedBetIdRef = useRef<string | null>(null);
   const messageListRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
-  const unreadStorageKey = `accountabilibuddy_last_read_by_group_${currentUser.username.toLowerCase()}`;
+  const unreadStorageKey = `BAAM_last_read_by_group_${currentUser.username.toLowerCase()}`;
 
   const betsById = useMemo(
     () => Object.fromEntries(bets.map((bet) => [bet.id, bet])) as Record<string, Bet>,
