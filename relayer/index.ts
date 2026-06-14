@@ -45,6 +45,7 @@ const PROFILE_GITHUB   = process.env.PROFILE_GITHUB ?? "me";
 const DEFAULT_USDC_MINT = "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU";
 const AUTH_SECRET = process.env.AUTH_SECRET ?? "dev-only-insecure-auth-secret";
 const AUTH_SESSION_TTL_MS = Number(process.env.AUTH_SESSION_TTL_MS ?? 1000 * 60 * 60 * 24 * 30);
+const IMESSAGE_DEEP_LINK_BASE = process.env.IMESSAGE_DEEP_LINK_BASE ?? "accountabilibuddy://bet";
 
 // Custodial wallets + on-chain SOL bets.
 //   WALLET_SECRET_KEY      encryption key for stored wallet secrets (falls back to AUTH_SECRET)
@@ -63,6 +64,12 @@ const SOCIAL_BET_SPORT        = 0; // reuse the sportsBet program; sport is irre
 const VAULT_SEED        = Buffer.from("vault");
 const SPORTS_BET_SEED   = Buffer.from("sports_bet");
 const SPORTS_VAULT_SEED = Buffer.from("sports_vault");
+const SOCIAL_BET_SEED   = Buffer.from("social_bet");
+const SOCIAL_VAULT_SEED = Buffer.from("social_vault");
+
+// Standard Solana incinerator — burned lamports are unrecoverable.
+const BURN_ADDRESS = new web3.PublicKey("1nc1nerator11111111111111111111111111111111");
+const FALLBACK_KIND_CODE: Record<string, number> = { return: 0, burn: 1, charity: 2 };
 
 const WALLET_ENC_KEY = deriveWalletKey();
 
@@ -167,6 +174,17 @@ function sportsBetPda(creator: web3.PublicKey, gameId: number[]): web3.PublicKey
 
 function sportsVaultPda(bet: web3.PublicKey): web3.PublicKey {
   return web3.PublicKey.findProgramAddressSync([SPORTS_VAULT_SEED, bet.toBuffer()], program.programId)[0];
+}
+
+function socialBetPda(challenger: web3.PublicKey, betId: number[]): web3.PublicKey {
+  return web3.PublicKey.findProgramAddressSync(
+    [SOCIAL_BET_SEED, challenger.toBuffer(), Buffer.from(betId)],
+    program.programId,
+  )[0];
+}
+
+function socialVaultPda(bet: web3.PublicKey): web3.PublicKey {
+  return web3.PublicKey.findProgramAddressSync([SOCIAL_VAULT_SEED, bet.toBuffer()], program.programId)[0];
 }
 
 function solStakeToLamports(stake: string): number {
@@ -282,6 +300,43 @@ function countBetVotes(votesByVoter: Record<string, BetVoteChoice>): {
     if (choice === "acceptor") acceptor += 1;
   }
   return { challenger, acceptor, total: challenger + acceptor };
+}
+
+type BetPresentationStatus = "pending" | "active" | "completed";
+
+function getBetResolvedWinner(doc: BetDoc): BetVoteChoice | undefined {
+  const normalized = normalizeBetDoc(doc);
+  if (normalized.status === "PENDING") return undefined;
+  if (normalized.resolvedWinner) return normalized.resolvedWinner;
+  const votes = countBetVotes(normalized.votesByVoter ?? {});
+  const threshold = Math.max(1, Number(normalized.witnesses) || 1);
+  if (votes.challenger >= threshold) return "challenger";
+  if (votes.acceptor >= threshold) return "acceptor";
+  return undefined;
+}
+
+function getBetPresentationStatus(doc: BetDoc): BetPresentationStatus {
+  const normalized = normalizeBetStatus(doc.status);
+  if (normalized === "PENDING") return "pending";
+  if (normalized === "ACTIVE") return "active";
+  return "completed";
+}
+
+function getOnChainStateLabel(state?: BetDoc["onChainState"]): string {
+  switch (state) {
+    case "open": return "ESCROW OPEN · awaiting match";
+    case "locked": return "LOCKED IN ESCROW · on-chain";
+    case "settled": return "PAID OUT ON-CHAIN";
+    case "cancelled": return "REFUNDED · window expired";
+    default: return "ON-CHAIN ESCROW";
+  }
+}
+
+function buildIMessageBetDeepLink(betId: string): string {
+  const base = IMESSAGE_DEEP_LINK_BASE.endsWith("/")
+    ? IMESSAGE_DEEP_LINK_BASE.slice(0, -1)
+    : IMESSAGE_DEEP_LINK_BASE;
+  return `${base}/${encodeURIComponent(betId)}`;
 }
 
 // Decode a [u8; 32] zero-padded game id back into a string.
@@ -646,6 +701,37 @@ const server = http.createServer(async (req, res) => {
       await crankSportsBets();
       return json(res, 200, { ok: true });
     }
+    // GET /imessage/deeplink?betId=...    -> canonical deep-link URL
+    // GET /imessage/deeplink?url=...      -> extract betId from a deep-link URL
+    if (req.method === "GET" && req.url?.startsWith("/imessage/deeplink")) {
+      const params = new URL(req.url, "http://x").searchParams;
+      const betId = params.get("betId");
+      const rawUrl = params.get("url");
+      if (betId && betId.trim()) {
+        return json(res, 200, {
+          betId: betId.trim(),
+          url: buildIMessageBetDeepLink(betId.trim()),
+        });
+      }
+      if (rawUrl && rawUrl.trim()) {
+        return json(res, 200, {
+          betId: parseIMessageBetDeepLink(rawUrl),
+        });
+      }
+      return json(res, 400, { error: "provide either betId or url query param" });
+    }
+
+    // GET /imessage/bets/:id  — compact, iMessage-friendly card payload
+    const imessageBetPathId = req.url ? decodeIMessageBetPathId(req.url) : null;
+    if (req.method === "GET" && imessageBetPathId) {
+      const authUser = await getAuthenticatedUser(req);
+      if (!authUser) return json(res, 401, { error: "unauthorized" });
+      const lookup = await loadAuthorizedBetForUser(authUser, imessageBetPathId);
+      if ("error" in lookup) return json(res, lookup.status, { error: lookup.error });
+      return json(res, 200, {
+        card: toIMessageBetCard(authUser.username, lookup.bet, lookup.group),
+      });
+    }
 
     // ── MongoDB-backed dashboard data ─────────────────────────────────────────
     // All of these return 503 (with a clear message) until MONGODB_URI is set,
@@ -884,6 +970,45 @@ const server = http.createServer(async (req, res) => {
       const minBettors = Math.max(1, Math.floor(toFiniteNumber(body.minBettors, 2)));
       const groupSize = Math.max(1, Math.floor(toFiniteNumber(group.members, 1)));
 
+      // Witness bets (non-sports) carry a resolve-by deadline, an optional accept-by
+      // deadline (indefinite when omitted), and a precommitted unresolved fallback.
+      let witnessFields: Partial<BetDoc> = {};
+      if (!isSports) {
+        const resolveByDate = toFiniteNumber(body.resolveByDate, 0);
+        if (!resolveByDate || resolveByDate <= now) {
+          return json(res, 400, { error: "resolveByDate (a future time) is required" });
+        }
+        const acceptByRaw = body.acceptByDate;
+        const acceptByDate = acceptByRaw === null || acceptByRaw === undefined
+          ? null
+          : isFiniteNumber(acceptByRaw) ? acceptByRaw : NaN;
+        if (typeof acceptByDate === "number" && Number.isNaN(acceptByDate)) {
+          return json(res, 400, { error: "acceptByDate must be a number or null (indefinite)" });
+        }
+        if (acceptByDate !== null && acceptByDate <= now) {
+          return json(res, 400, { error: "acceptByDate must be in the future or indefinite" });
+        }
+        if (acceptByDate !== null && acceptByDate > resolveByDate) {
+          return json(res, 400, { error: "acceptByDate must be on or before resolveByDate" });
+        }
+        const fallbackKind: BetDoc["fallbackKind"] =
+          body.fallbackKind === "burn" || body.fallbackKind === "charity" ? body.fallbackKind : "return";
+        let fallbackDest = BURN_ADDRESS.toBase58();
+        let charityName: string | undefined;
+        if (fallbackKind === "charity") {
+          const addr = typeof body.charityAddress === "string" ? body.charityAddress.trim() : "";
+          try {
+            fallbackDest = new web3.PublicKey(addr).toBase58();
+          } catch {
+            return json(res, 400, { error: "a valid charity address is required" });
+          }
+          charityName = typeof body.charityName === "string" && body.charityName.trim()
+            ? body.charityName.trim()
+            : undefined;
+        }
+        witnessFields = { acceptByDate, resolveByDate, fallbackKind, fallbackDest, charityName };
+      }
+
       const betDoc: BetDoc = {
         id: `bet-${now}-${crypto.randomBytes(3).toString("hex")}`,
         groupId,
@@ -905,6 +1030,7 @@ const server = http.createServer(async (req, res) => {
           awayTeam,
           challengerBacksHome,
         } : {}),
+        ...witnessFields,
       };
       await betsCol.insertOne(betDoc);
 
@@ -1553,8 +1679,157 @@ function explorerUrl(sig: string): string {
   return `https://explorer.solana.com/tx/${sig}?cluster=devnet`;
 }
 
+type AuthorizedBetLookup =
+  | { status: 200; bet: BetDoc; group: GroupDoc }
+  | { status: number; error: string };
+
+async function loadAuthorizedBetForUser(authUser: UserDoc, rawBetId: string): Promise<AuthorizedBetLookup> {
+  const betId = rawBetId.trim();
+  if (!betId) return { status: 400, error: "bet id is required" };
+
+  const betsCol = await bets();
+  const groupsCol = await groups();
+  const messagesCol = await messages();
+  if (!betsCol || !groupsCol || !messagesCol) {
+    return { status: 503, error: "MongoDB not configured. Set MONGODB_URI to enable this route." };
+  }
+
+  const existing = await betsCol.findOne({ id: betId }, { projection: { _id: 0 } });
+  if (!existing) return { status: 404, error: "bet not found" };
+
+  const linkedMessage = existing.groupId
+    ? null
+    : await messagesCol.findOne({ betId }, { projection: { groupId: 1 } });
+  const groupId = existing.groupId ?? linkedMessage?.groupId;
+  if (!groupId) return { status: 422, error: "bet is not linked to a group" };
+
+  const group = await groupsCol.findOne({ id: groupId }, { projection: { _id: 0 } });
+  if (!group) return { status: 404, error: "group not found" };
+  if (!isGroupMember(group, authUser.username)) {
+    return { status: 403, error: "group membership required" };
+  }
+
+  const normalized = normalizeBetDoc(existing);
+  return { status: 200, bet: { ...normalized, groupId }, group };
+}
+
+function toIMessageBetCard(viewerUsername: string, bet: BetDoc, group: GroupDoc): Record<string, unknown> {
+  const normalized = normalizeBetDoc(bet);
+  const status = getBetPresentationStatus(normalized);
+  const votesByVoter = normalized.votesByVoter ?? {};
+  const votes = countBetVotes(votesByVoter);
+  const witnessThreshold = Math.max(1, Number(normalized.witnesses) || 1);
+  const winner = getBetResolvedWinner(normalized) ?? null;
+  const winnerName = winner === "challenger"
+    ? normalized.challenger
+    : winner === "acceptor"
+      ? normalized.acceptor
+      : null;
+  const isSports = normalized.validation === "sports";
+  const viewerLower = viewerUsername.toLowerCase();
+  const canAccept = status === "pending"
+    && normalized.challenger.toLowerCase() !== viewerLower
+    && (
+      normalized.acceptor.toLowerCase() === viewerLower
+      || normalized.acceptor.toLowerCase() === "anyone"
+    );
+  const canVote = !isSports
+    && status === "active"
+    && !winner
+    && !(normalized.onChain && normalized.currency === "SOL" && normalized.onChainState !== "locked");
+
+  return {
+    betId: normalized.id,
+    group: {
+      id: group.id,
+      name: group.name,
+    },
+    type: normalized.type,
+    status,
+    statusLabel: status.toUpperCase(),
+    terms: normalized.terms,
+    stake: {
+      amount: normalized.stake,
+      currency: normalized.currency,
+    },
+    challenger: normalized.challenger,
+    acceptor: normalized.acceptor,
+    witnessesRequired: witnessThreshold,
+    votes: {
+      challenger: votes.challenger,
+      acceptor: votes.acceptor,
+      total: votes.total,
+      byVoter: votesByVoter,
+      myVote: votesByVoter[viewerUsername] ?? null,
+    },
+    winner,
+    winnerName,
+    validation: isSports ? "sports" : "witness",
+    sports: isSports ? {
+      sport: normalized.sport ?? null,
+      gameId: normalized.espnGameId ?? null,
+      homeTeam: normalized.homeTeam ?? null,
+      awayTeam: normalized.awayTeam ?? null,
+      challengerBacksHome: normalized.challengerBacksHome ?? null,
+    } : null,
+    onChain: {
+      enabled: Boolean(normalized.onChain),
+      state: normalized.onChainState ?? null,
+      label: getOnChainStateLabel(normalized.onChainState),
+      signatures: {
+        create: normalized.createSig ?? null,
+        accept: normalized.acceptSig ?? null,
+        settle: normalized.settleSig ?? null,
+      },
+      explorer: {
+        create: normalized.createSig ? explorerUrl(normalized.createSig) : null,
+        accept: normalized.acceptSig ? explorerUrl(normalized.acceptSig) : null,
+        settle: normalized.settleSig ? explorerUrl(normalized.settleSig) : null,
+      },
+    },
+    actions: {
+      canAccept,
+      canVote,
+      acceptEndpoint: "/bets/accept",
+      voteEndpoint: "/bets/vote",
+    },
+    links: {
+      deepLink: buildIMessageBetDeepLink(normalized.id),
+    },
+  };
+}
+
+function parseIMessageBetDeepLink(raw: string): string | null {
+  try {
+    const url = new URL(raw);
+    const fromQuery = url.searchParams.get("betId");
+    if (fromQuery && fromQuery.trim()) return fromQuery.trim();
+
+    if (url.protocol === "accountabilibuddy:" && url.hostname === "bet") {
+      const id = url.pathname.split("/").filter(Boolean)[0];
+      return id ? decodeURIComponent(id) : null;
+    }
+
+    const parts = url.pathname.split("/").filter(Boolean);
+    const marker = parts.findIndex((part) => part === "bet" || part === "bets");
+    if (marker !== -1 && parts[marker + 1]) {
+      return decodeURIComponent(parts[marker + 1]);
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 function decodeProfilePathId(url: string): string {
   return decodeURIComponent(url.slice("/profiles/".length).split("?")[0] ?? "");
+}
+
+function decodeIMessageBetPathId(url: string): string | null {
+  const path = url.split("?")[0] ?? "";
+  const match = /^\/imessage\/bets\/([^/]+)$/.exec(path);
+  if (!match?.[1]) return null;
+  return decodeURIComponent(match[1]);
 }
 
 function decodeGroupMembersPathId(url: string): string | null {

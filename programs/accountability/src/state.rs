@@ -82,3 +82,50 @@ pub struct SportsVault {}
 impl SportsVault {
     pub const LEN: usize = 8;
 }
+
+// ── social / witness bets ────────────────────────────────────────────────────────
+
+/// A peer-judged 1v1 wager. Both sides stake equally at acceptance (escrowed into
+/// the vault); the winner takes the pot once the oracle settles from a witness-vote
+/// quorum. If the `end_date` (resolve-by) passes with no quorum, the oracle routes
+/// the pot to a precommitted fallback — refund both, burn, or send to a charity.
+#[account]
+pub struct SocialBet {
+    /// Wallet that posted the bet and staked the "challenger" side.
+    pub challenger: Pubkey,
+    /// Wallet that accepted and staked the "acceptor" side.
+    pub opponent: Pubkey,
+    /// Per-side stake in lamports. The pot the winner collects is `2 * amount`.
+    pub amount: u64,
+    /// Oracle (relayer) authorized to settle from the witness vote / fallback.
+    pub oracle_pubkey: Pubkey,
+    /// Resolve-by deadline (unix seconds). After it, the oracle may run the fallback.
+    pub end_date: i64,
+    /// Precommitted fallback if unresolved by `end_date`: 0 = return, 1 = burn, 2 = charity.
+    pub fallback_kind: u8,
+    /// Destination for burn/charity fallbacks (ignored when fallback_kind == 0).
+    pub fallback_dest: Pubkey,
+    pub state: SocialBetState,
+    pub bump: u8,
+}
+
+impl SocialBet {
+    // 8 disc + 32 challenger + 32 opponent + 8 amount + 32 oracle + 8 end_date
+    // + 1 fallback_kind + 32 fallback_dest + 1 state + 1 bump
+    pub const LEN: usize = 8 + 32 + 32 + 8 + 32 + 8 + 1 + 32 + 1 + 1;
+}
+
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SocialBetState {
+    /// Both sides staked; awaiting the oracle's settlement.
+    Locked,
+    /// Paid out (winner, refund, burn, or charity).
+    Settled,
+}
+
+#[account]
+pub struct SocialVault {}
+
+impl SocialVault {
+    pub const LEN: usize = 8;
+}

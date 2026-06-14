@@ -44,4 +44,14 @@ pub enum ErrorCode {
     SettleTooEarly,
     #[msg("Opponent account does not match the bet")]
     InvalidOpponent,
+
+    // ── social/witness bets ────────────────────────────────────────────────────
+    #[msg("Resolve-by date must be in the future")]
+    InvalidEndDate,
+    #[msg("Unknown fallback kind")]
+    InvalidFallbackKind,
+    #[msg("Unknown settlement outcome")]
+    InvalidOutcome,
+    #[msg("Fallback can only run after the resolve-by date")]
+    FallbackTooEarly,
 }

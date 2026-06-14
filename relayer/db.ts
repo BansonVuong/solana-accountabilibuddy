@@ -99,6 +99,17 @@ export interface BetDoc {
   createSig?: string;
   acceptSig?: string;
   settleSig?: string;
+  // ── witness-bet deadlines + unresolved fallback (precommitted by challenger) ───
+  /** Offer expires if not accepted by this unix-ms time. Omitted/null = indefinite. */
+  acceptByDate?: number | null;
+  /** Resolve-by unix-ms deadline; after it, with no quorum, the fallback fires. */
+  resolveByDate?: number;
+  /** What happens to the pot if unresolved by resolveByDate. */
+  fallbackKind?: "return" | "burn" | "charity";
+  /** Burn/charity destination pubkey (base58); also stored for "return" as a placeholder. */
+  fallbackDest?: string;
+  /** Charity display name, when fallbackKind === "charity". */
+  charityName?: string;
 }
 
 export interface ProfileDoc {

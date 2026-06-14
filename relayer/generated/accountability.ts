@@ -401,6 +401,126 @@ export type Accountability = {
       ]
     },
     {
+      "name": "escrowBet",
+      "discriminator": [
+        7,
+        114,
+        89,
+        61,
+        205,
+        89,
+        48,
+        174
+      ],
+      "accounts": [
+        {
+          "name": "challenger",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "opponent",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "socialBet",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  111,
+                  99,
+                  105,
+                  97,
+                  108,
+                  95,
+                  98,
+                  101,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "challenger"
+              },
+              {
+                "kind": "arg",
+                "path": "betId"
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  111,
+                  99,
+                  105,
+                  97,
+                  108,
+                  95,
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "socialBet"
+              }
+            ]
+          }
+        },
+        {
+          "name": "systemProgram",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "amount",
+          "type": "u64"
+        },
+        {
+          "name": "oraclePubkey",
+          "type": "pubkey"
+        },
+        {
+          "name": "betId",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "endDate",
+          "type": "i64"
+        },
+        {
+          "name": "fallbackKind",
+          "type": "u8"
+        },
+        {
+          "name": "fallbackDest",
+          "type": "pubkey"
+        }
+      ]
+    },
+    {
       "name": "resolve",
       "discriminator": [
         246,
@@ -582,6 +702,85 @@ export type Accountability = {
           "type": {
             "option": "bool"
           }
+        }
+      ]
+    },
+    {
+      "name": "settleSocial",
+      "discriminator": [
+        236,
+        120,
+        132,
+        142,
+        22,
+        182,
+        106,
+        129
+      ],
+      "accounts": [
+        {
+          "name": "oracle",
+          "signer": true
+        },
+        {
+          "name": "challenger",
+          "writable": true,
+          "relations": [
+            "socialBet"
+          ]
+        },
+        {
+          "name": "opponent",
+          "writable": true,
+          "relations": [
+            "socialBet"
+          ]
+        },
+        {
+          "name": "destination",
+          "docs": [
+            "(used only for the burn/charity fallback)."
+          ],
+          "writable": true
+        },
+        {
+          "name": "socialBet",
+          "writable": true
+        },
+        {
+          "name": "vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  111,
+                  99,
+                  105,
+                  97,
+                  108,
+                  95,
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "socialBet"
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "outcome",
+          "type": "u8"
         }
       ]
     },
@@ -772,6 +971,32 @@ export type Accountability = {
       ]
     },
     {
+      "name": "socialBet",
+      "discriminator": [
+        57,
+        150,
+        53,
+        20,
+        236,
+        154,
+        156,
+        90
+      ]
+    },
+    {
+      "name": "socialVault",
+      "discriminator": [
+        63,
+        91,
+        64,
+        62,
+        215,
+        152,
+        172,
+        44
+      ]
+    },
+    {
       "name": "sportsBet",
       "discriminator": [
         126,
@@ -911,6 +1136,26 @@ export type Accountability = {
       "code": 6019,
       "name": "invalidOpponent",
       "msg": "Opponent account does not match the bet"
+    },
+    {
+      "code": 6020,
+      "name": "invalidEndDate",
+      "msg": "Resolve-by date must be in the future"
+    },
+    {
+      "code": 6021,
+      "name": "invalidFallbackKind",
+      "msg": "Unknown fallback kind"
+    },
+    {
+      "code": 6022,
+      "name": "invalidOutcome",
+      "msg": "Unknown settlement outcome"
+    },
+    {
+      "code": 6023,
+      "name": "fallbackTooEarly",
+      "msg": "Fallback can only run after the resolve-by date"
     }
   ],
   "types": [
@@ -966,6 +1211,102 @@ export type Accountability = {
             "name": "resolved"
           }
         ]
+      }
+    },
+    {
+      "name": "socialBet",
+      "docs": [
+        "A peer-judged 1v1 wager. Both sides stake equally at acceptance (escrowed into",
+        "the vault); the winner takes the pot once the oracle settles from a witness-vote",
+        "quorum. If the `end_date` (resolve-by) passes with no quorum, the oracle routes",
+        "the pot to a precommitted fallback — refund both, burn, or send to a charity."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "challenger",
+            "docs": [
+              "Wallet that posted the bet and staked the \"challenger\" side."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "opponent",
+            "docs": [
+              "Wallet that accepted and staked the \"acceptor\" side."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "docs": [
+              "Per-side stake in lamports. The pot the winner collects is `2 * amount`."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "oraclePubkey",
+            "docs": [
+              "Oracle (relayer) authorized to settle from the witness vote / fallback."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "endDate",
+            "docs": [
+              "Resolve-by deadline (unix seconds). After it, the oracle may run the fallback."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "fallbackKind",
+            "docs": [
+              "Precommitted fallback if unresolved by `end_date`: 0 = return, 1 = burn, 2 = charity."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "fallbackDest",
+            "docs": [
+              "Destination for burn/charity fallbacks (ignored when fallback_kind == 0)."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "state",
+            "type": {
+              "defined": {
+                "name": "socialBetState"
+              }
+            }
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "socialBetState",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "locked"
+          },
+          {
+            "name": "settled"
+          }
+        ]
+      }
+    },
+    {
+      "name": "socialVault",
+      "type": {
+        "kind": "struct",
+        "fields": []
       }
     },
     {

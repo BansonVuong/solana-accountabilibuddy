@@ -73,4 +73,31 @@ pub mod accountability {
     pub fn settle_bet(ctx: Context<SettleBet>, home_won: Option<bool>) -> Result<()> {
         sports_bet::process_settle_bet(ctx, home_won)
     }
+
+    // ── social / witness bets (peer-judged, oracle-settled with a fallback) ───────
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn escrow_bet(
+        ctx: Context<EscrowBet>,
+        amount: u64,
+        oracle_pubkey: Pubkey,
+        bet_id: [u8; 32],
+        end_date: i64,
+        fallback_kind: u8,
+        fallback_dest: Pubkey,
+    ) -> Result<()> {
+        social_bet::process_escrow_bet(
+            ctx,
+            amount,
+            oracle_pubkey,
+            bet_id,
+            end_date,
+            fallback_kind,
+            fallback_dest,
+        )
+    }
+
+    pub fn settle_social(ctx: Context<SettleSocial>, outcome: u8) -> Result<()> {
+        social_bet::process_settle_social(ctx, outcome)
+    }
 }
