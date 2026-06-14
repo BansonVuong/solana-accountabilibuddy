@@ -15,14 +15,12 @@ enum MessageBetVoteChoice: String, Codable, CaseIterable, Identifiable {
 }
 
 struct MessageCreateBetRequest: Codable {
-    let groupId: String
+    let source: String
     let type: MessageBetType
     let acceptor: String
     let terms: String
     let stake: String
     let currency: String
-    let witnesses: Int
-    let minBettors: Int
     let sport: String?
     let gameId: String?
     let backsHome: Bool?
@@ -148,18 +146,10 @@ struct MessageCurrentUserResponse: Codable {
     let user: MessageAuthUser
 }
 
-struct MessageGroup: Codable, Identifiable {
-    let id: String
+struct MessageProfile: Codable {
     let name: String
     let initials: String
-    let members: Int
-    let memberUsernames: [String]?
-    let pendingBet: Bool
-    let lastMsg: String
-    let time: String
-    let updatedAt: Double?
-}
-
-struct MessageGroupsResponse: Codable {
-    let groups: [MessageGroup]
+    let github: String
+    let wallet: String
+    let solBalance: Double
 }

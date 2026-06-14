@@ -5,6 +5,8 @@ struct BetDraftMessage {
     let url: URL
     let title: String
     let subtitle: String
+    let wallet: String?
+    let solBalance: Double?
 }
 
 @MainActor
@@ -14,15 +16,12 @@ final class BetMessageViewModel: ObservableObject {
     @Published var password: String = ""
     @Published var isCreatingAccount: Bool = false
     @Published var currentUser: MessageAuthUser?
-    @Published var groups: [MessageGroup] = []
-    @Published var groupId: String
+    @Published var profile: MessageProfile?
 
     @Published var betType: MessageBetType = .PERSONAL
     @Published var acceptor: String = ""
     @Published var terms: String = ""
     @Published var stake: String = ""
-    @Published var witnesses: Int = 2
-    @Published var minBettors: Int = 2
 
     @Published var useSportsValidation: Bool = false
     @Published var sport: String = "nba"
@@ -41,7 +40,6 @@ final class BetMessageViewModel: ObservableObject {
 
     private let defaults = UserDefaults.standard
     private let authTokenKey = "imessage.authToken"
-    private let groupIDKey = "imessage.defaultGroupID"
     private let productionURL = URL(string: "https://66.42.115.38.nip.io")!
     private var authToken: String
     private var hasBootstrapped = false
@@ -49,10 +47,8 @@ final class BetMessageViewModel: ObservableObject {
 
     init() {
         let savedToken = defaults.string(forKey: authTokenKey) ?? ""
-        let savedGroup = defaults.string(forKey: groupIDKey) ?? ""
 
         self.authToken = savedToken
-        self.groupId = savedGroup
         self.client = RelayerClient(
             baseURL: productionURL,
             authToken: savedToken
@@ -69,7 +65,7 @@ final class BetMessageViewModel: ObservableObject {
         do {
             isBusy = true
             currentUser = try await client.currentUser()
-            try await refreshGroups()
+            try await refreshProfile()
         } catch {
             signOut(showMessage: false)
         }
@@ -103,7 +99,7 @@ final class BetMessageViewModel: ObservableObject {
             client.update(baseURL: productionURL, authToken: response.token)
             defaults.set(response.token, forKey: authTokenKey)
             password = ""
-            try await refreshGroups()
+            try await refreshProfile()
             infoMessage = isCreatingAccount ? "Account created." : "Signed in."
         } catch {
             errorMessage = error.localizedDescription
@@ -111,31 +107,18 @@ final class BetMessageViewModel: ObservableObject {
         isBusy = false
     }
 
-    func refreshGroups() async throws {
-        groups = try await client.fetchGroups().sorted {
-            ($0.updatedAt ?? 0) > ($1.updatedAt ?? 0)
-        }
-        if !groups.contains(where: { $0.id == groupId }) {
-            groupId = groups.first?.id ?? ""
-        }
-        defaults.set(groupId, forKey: groupIDKey)
-    }
-
-    func selectGroup(_ id: String) {
-        groupId = id
-        defaults.set(id, forKey: groupIDKey)
+    func refreshProfile() async throws {
+        profile = try await client.fetchProfile()
     }
 
     func signOut(showMessage: Bool = true) {
         authToken = ""
         currentUser = nil
-        groups = []
-        groupId = ""
+        profile = nil
         selectedBetId = nil
         selectedCard = nil
         client.update(baseURL: productionURL, authToken: "")
         defaults.removeObject(forKey: authTokenKey)
-        defaults.removeObject(forKey: groupIDKey)
         if showMessage {
             infoMessage = "Signed out."
         }
@@ -172,11 +155,14 @@ final class BetMessageViewModel: ObservableObject {
             let link = try await client.deepLink(for: created.bet.id)
             selectedBetId = created.bet.id
             selectedCard = try await client.fetchCard(betId: created.bet.id)
+            try? await refreshProfile()
 
             let draft = BetDraftMessage(
                 url: link,
                 title: "\(betType.rawValue) bet · \(request.stake) SOL",
-                subtitle: request.terms
+                subtitle: request.terms,
+                wallet: profile?.wallet,
+                solBalance: profile?.solBalance
             )
             sendDraft(draft)
             infoMessage = "Bet created and ready to send in iMessage."
@@ -195,6 +181,7 @@ final class BetMessageViewModel: ObservableObject {
             errorMessage = nil
             try await client.acceptBet(betId: betId)
             selectedCard = try await client.fetchCard(betId: betId)
+            try? await refreshProfile()
             infoMessage = "Bet accepted."
         } catch {
             errorMessage = error.localizedDescription
@@ -224,11 +211,6 @@ final class BetMessageViewModel: ObservableObject {
     }
 
     private func buildCreateBetRequest() throws -> MessageCreateBetRequest {
-        let trimmedGroupId = groupId.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmedGroupId.isEmpty {
-            throw RelayerClientError.server("Group ID is required.")
-        }
-
         let trimmedStake = stake.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let numericStake = Double(trimmedStake), numericStake > 0 else {
             throw RelayerClientError.server("Stake must be a positive SOL amount.")
@@ -264,14 +246,12 @@ final class BetMessageViewModel: ObservableObject {
         let sportsMode = betType == .DEV && useSportsValidation
 
         return MessageCreateBetRequest(
-            groupId: trimmedGroupId,
+            source: "imessage",
             type: betType,
             acceptor: normalizedAcceptor,
             terms: normalizedTerms,
             stake: trimmedStake,
             currency: "SOL",
-            witnesses: max(1, witnesses),
-            minBettors: max(1, minBettors),
             sport: sportsMode ? sport.lowercased() : nil,
             gameId: sportsMode ? gameId.trimmingCharacters(in: .whitespacesAndNewlines) : nil,
             backsHome: sportsMode ? backsHome : nil,

@@ -47,6 +47,12 @@ final class MessagesViewController: MSMessagesAppViewController {
         let layout = MSMessageTemplateLayout()
         layout.caption = draft.title
         layout.subcaption = draft.subtitle
+        if let balance = draft.solBalance {
+            layout.trailingCaption = String(format: "%.4f SOL", balance)
+        }
+        if let wallet = draft.wallet {
+            layout.trailingSubcaption = "\(wallet.prefix(6))...\(wallet.suffix(6))"
+        }
 
         let session = conversation.selectedMessage?.session ?? MSSession()
         let message = MSMessage(session: session)

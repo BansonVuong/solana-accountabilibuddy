@@ -48,6 +48,8 @@ export interface MessageDoc {
 
 export interface BetDoc {
   id: string;
+  /** Surface that created the bet. iMessage bets use the Messages conversation instead of a dashboard group. */
+  source?: "imessage";
   /** Group that owns this bet. Older records may only be linked through a message. */
   groupId?: string;
   type: "PERSONAL" | "DEV";

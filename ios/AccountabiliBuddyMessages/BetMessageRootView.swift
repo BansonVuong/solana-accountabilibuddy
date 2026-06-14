@@ -89,31 +89,33 @@ struct BetMessageRootView: View {
                 .font(.caption)
             }
 
-            if viewModel.groups.isEmpty {
-                Text("You do not belong to a group yet. Create or join one in AccountabiliBuddy, then refresh.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Button("Refresh groups") {
-                    Task {
-                        do {
-                            try await viewModel.refreshGroups()
-                        } catch {
-                            viewModel.errorMessage = error.localizedDescription
-                        }
-                    }
+            if let profile = viewModel.profile {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("SOL balance")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Text("\(profile.solBalance, specifier: "%.4f") SOL")
+                        .font(.title3.weight(.semibold))
+                    Text("SOL address")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Text(profile.wallet)
+                        .font(.caption.monospaced())
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
                 }
-                .buttonStyle(.bordered)
-            } else {
-                Picker("Send to group", selection: Binding(
-                    get: { viewModel.groupId },
-                    set: { viewModel.selectGroup($0) }
-                )) {
-                    ForEach(viewModel.groups) { group in
-                        Text("\(group.name) (\(group.members))").tag(group.id)
-                    }
-                }
-                .pickerStyle(.menu)
             }
+
+            Button("Refresh balance") {
+                Task {
+                    do {
+                        try await viewModel.refreshProfile()
+                    } catch {
+                        viewModel.errorMessage = error.localizedDescription
+                    }
+                }
+            }
+            .buttonStyle(.bordered)
         }
         .padding(12)
         .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12))
@@ -170,9 +172,6 @@ struct BetMessageRootView: View {
                 .keyboardType(.decimalPad)
                 .textFieldStyle(.roundedBorder)
 
-            Stepper("Witnesses: \(viewModel.witnesses)", value: $viewModel.witnesses, in: 1...20)
-            Stepper("Min bettors: \(viewModel.minBettors)", value: $viewModel.minBettors, in: 1...20)
-
             Button {
                 Task {
                     await viewModel.createBetAndDraftMessage { draft in
@@ -184,7 +183,7 @@ struct BetMessageRootView: View {
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.borderedProminent)
-            .disabled(viewModel.isBusy || viewModel.groupId.isEmpty)
+            .disabled(viewModel.isBusy)
         }
         .padding(12)
         .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12))
@@ -196,7 +195,7 @@ struct BetMessageRootView: View {
             VStack(alignment: .leading, spacing: 10) {
                 HStack {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(card.group.name)
+                        Text("iMessage bet")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                         Text("\(card.type.rawValue) · \(card.statusLabel)")
@@ -221,16 +220,6 @@ struct BetMessageRootView: View {
                         .multilineTextAlignment(.trailing)
                 }
 
-                HStack(spacing: 12) {
-                    Text("Votes \(card.votes.challenger)-\(card.votes.acceptor)")
-                    Text("Quorum \(card.witnessesRequired)")
-                    if let winner = card.winner {
-                        Text("Winner: \(winner.rawValue)")
-                    }
-                }
-                .font(.caption)
-                .foregroundStyle(.secondary)
-
                 HStack {
                     Button("Refresh") {
                         guard let id = viewModel.selectedBetId else { return }
@@ -245,18 +234,6 @@ struct BetMessageRootView: View {
                     .disabled(!card.actions.canAccept || viewModel.isBusy)
                 }
 
-                if card.actions.canVote {
-                    HStack {
-                        Button("Vote challenger") {
-                            Task { await viewModel.voteSelectedBet(.challenger) }
-                        }
-                        .buttonStyle(.bordered)
-                        Button("Vote acceptor") {
-                            Task { await viewModel.voteSelectedBet(.acceptor) }
-                        }
-                        .buttonStyle(.bordered)
-                    }
-                }
             }
             .padding(12)
             .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12))

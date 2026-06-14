@@ -68,14 +68,13 @@ final class RelayerClient {
         return response.user
     }
 
-    func fetchGroups() async throws -> [MessageGroup] {
-        let response: MessageGroupsResponse = try await requestJSON(
+    func fetchProfile() async throws -> MessageProfile {
+        try await requestJSON(
             method: "GET",
-            path: "/groups",
+            path: "/profile",
             body: Optional<String>.none,
-            responseType: MessageGroupsResponse.self
+            responseType: MessageProfile.self
         )
-        return response.groups
     }
 
     func createBet(_ request: MessageCreateBetRequest) async throws -> MessageCreateBetResponse {

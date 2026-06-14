@@ -920,7 +920,7 @@ const server = http.createServer(async (req, res) => {
       return json(res, 201, { message: out });
     }
 
-    // POST /bets  { groupId, type, acceptor, terms, stake, currency, witnesses?, minBettors? }
+    // POST /bets  { groupId?, source?, type, acceptor, terms, stake, currency, witnesses?, minBettors? }
     // Creates a persistent bet plus a linked system message for embedded bet-card rendering.
     if (req.method === "POST" && req.url === "/bets") {
       const authUser = await getAuthenticatedUser(req);
@@ -932,6 +932,7 @@ const server = http.createServer(async (req, res) => {
 
       const body = await readJson(req);
       const groupId = typeof body.groupId === "string" ? body.groupId.trim() : "";
+      const isIMessage = body.source === "imessage";
       const type = body.type === "PERSONAL" || body.type === "DEV" ? body.type : null;
       const challenger = authUser.username;
       const acceptorInput = typeof body.acceptor === "string" ? body.acceptor.trim() : "";
@@ -949,7 +950,7 @@ const server = http.createServer(async (req, res) => {
       const homeTeam = isSports ? `${body.homeTeam ?? ""}`.trim() : undefined;
       const awayTeam = isSports ? `${body.awayTeam ?? ""}`.trim() : undefined;
 
-      if (!groupId) return json(res, 400, { error: "groupId is required" });
+      if (!isIMessage && !groupId) return json(res, 400, { error: "groupId is required" });
       if (!type) return json(res, 400, { error: "type must be PERSONAL or DEV" });
       const acceptor = type === "DEV" ? (acceptorInput || "anyone") : acceptorInput;
       if (!acceptor) return json(res, 400, { error: "acceptor is required" });
@@ -972,9 +973,11 @@ const server = http.createServer(async (req, res) => {
         }
       }
 
-      const group = await groupsCol.findOne({ id: groupId }, { projection: { _id: 0 } });
-      if (!group) return json(res, 404, { error: "group not found" });
-      if (!isGroupMember(group, authUser.username)) {
+      const group = groupId
+        ? await groupsCol.findOne({ id: groupId }, { projection: { _id: 0 } })
+        : null;
+      if (!isIMessage && !group) return json(res, 404, { error: "group not found" });
+      if (!isIMessage && group && !isGroupMember(group, authUser.username)) {
         return json(res, 403, { error: "group membership required" });
       }
       let challengerKp: web3.Keypair;
@@ -992,15 +995,18 @@ const server = http.createServer(async (req, res) => {
 
       const now = Date.now();
       const ts = formatChatClock(now);
-      const witnesses = Math.max(1, Math.floor(toFiniteNumber(body.witnesses, 1)));
-      const minBettors = Math.max(1, Math.floor(toFiniteNumber(body.minBettors, 2)));
-      const groupSize = Math.max(1, Math.floor(toFiniteNumber(group.members, 1)));
+      const witnesses = isIMessage ? 1 : Math.max(1, Math.floor(toFiniteNumber(body.witnesses, 1)));
+      const minBettors = isIMessage ? 2 : Math.max(1, Math.floor(toFiniteNumber(body.minBettors, 2)));
+      const groupSize = isIMessage ? 2 : Math.max(1, Math.floor(toFiniteNumber(group?.members, 1)));
 
       // Witness bets (non-sports) carry a resolve-by deadline, an optional accept-by
       // deadline (indefinite when omitted), and a precommitted unresolved fallback.
       let witnessFields: Partial<BetDoc> = {};
       if (!isSports) {
-        const resolveByDate = toFiniteNumber(body.resolveByDate, 0);
+        const resolveByDate = toFiniteNumber(
+          body.resolveByDate,
+          isIMessage ? now + 7 * 24 * 60 * 60 * 1000 : 0,
+        );
         if (!resolveByDate || resolveByDate <= now) {
           return json(res, 400, { error: "resolveByDate (a future time) is required" });
         }
@@ -1037,7 +1043,7 @@ const server = http.createServer(async (req, res) => {
 
       const betDoc: BetDoc = {
         id: `bet-${now}-${crypto.randomBytes(3).toString("hex")}`,
-        groupId,
+        ...(isIMessage ? { source: "imessage" as const } : { groupId }),
         type,
         challenger,
         acceptor,
@@ -1115,6 +1121,10 @@ const server = http.createServer(async (req, res) => {
         }
       }
 
+      if (isIMessage) {
+        return json(res, 201, { bet: normalizeBetDoc(betDoc) });
+      }
+
       const systemMessage: MessageDoc = {
         id: `m-${now}-${crypto.randomBytes(2).toString("hex")}`,
         groupId,
@@ -1165,7 +1175,7 @@ const server = http.createServer(async (req, res) => {
       const linkedMessage = bet.groupId ? null : await messagesCol.findOne({ betId }, { projection: { groupId: 1 } });
       const groupId = bet.groupId ?? linkedMessage?.groupId;
       const group = groupId ? await groupsCol.findOne({ id: groupId }, { projection: { _id: 0 } }) : null;
-      if (!group || !isGroupMember(group, authUser.username)) {
+      if (bet.source !== "imessage" && (!group || !isGroupMember(group, authUser.username))) {
         return json(res, 403, { error: "group membership required" });
       }
       if (authUser.username.toLowerCase() === bet.challenger.toLowerCase()) {
@@ -1713,6 +1723,22 @@ async function loadAuthorizedBetForUser(authUser: UserDoc, rawBetId: string): Pr
 
   const existing = await betsCol.findOne({ id: betId }, { projection: { _id: 0 } });
   if (!existing) return { status: 404, error: "bet not found" };
+  const normalized = normalizeBetDoc(existing);
+  if (normalized.source === "imessage") {
+    return {
+      status: 200,
+      bet: normalized,
+      group: {
+        id: "imessage",
+        name: "iMessage conversation",
+        initials: "IM",
+        members: 2,
+        pendingBet: normalized.status === "PENDING",
+        lastMsg: normalized.terms,
+        time: "",
+      },
+    };
+  }
 
   const linkedMessage = existing.groupId
     ? null
@@ -1726,7 +1752,6 @@ async function loadAuthorizedBetForUser(authUser: UserDoc, rawBetId: string): Pr
     return { status: 403, error: "group membership required" };
   }
 
-  const normalized = normalizeBetDoc(existing);
   return { status: 200, bet: { ...normalized, groupId }, group };
 }
 
@@ -1750,7 +1775,8 @@ function toIMessageBetCard(viewerUsername: string, bet: BetDoc, group: GroupDoc)
       normalized.acceptor.toLowerCase() === viewerLower
       || normalized.acceptor.toLowerCase() === "anyone"
     );
-  const canVote = !isSports
+  const canVote = normalized.source !== "imessage"
+    && !isSports
     && status === "active"
     && !winner
     && !(normalized.onChain && normalized.currency === "SOL" && normalized.onChainState !== "locked");
