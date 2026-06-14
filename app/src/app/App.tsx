@@ -658,7 +658,6 @@ export default function App() {
           <span className="text-foreground" style={{ fontSize: "13px", fontWeight: 700, letterSpacing: "-0.01em" }}>
             BAAM
           </span>
-          <Pill color="teal" className="hidden sm:inline-flex">BETA</Pill>
         </div>
 
         {/* Nav tabs */}
