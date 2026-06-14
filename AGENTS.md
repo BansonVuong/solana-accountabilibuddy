@@ -10,12 +10,13 @@
 ```bash
 git status --short
 git fetch origin
-git merge --ff-only @{upstream}
+git merge @{upstream}
 ```
 
-- If the fast-forward merge cannot proceed because the branch diverged or
-  local changes conflict, stop and report the situation instead of resetting,
-  rebasing, force-pushing, or discarding work.
+- If the branch diverged, integrate upstream with a regular merge commit.
+- If the merge conflicts, resolve them while preserving the intent of both
+  sides. Stop and report only when a conflict cannot be resolved confidently.
+- Never reset, rebase, force-push, or discard work to synchronize the branch.
 - Run the synchronization again immediately before pushing.
 
 ## Environment Boundaries
