@@ -1,27 +1,80 @@
-import { useState, useEffect } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { Github, TrendingUp, TrendingDown, Minus, Trophy, Flame, Star, Activity } from "lucide-react";
-import { Avatar, Pill, Card, Mono } from "./ui";
-import { getLeaderboard, getProfiles } from "../../lib/relayer";
+import { Avatar, Card, Mono } from "./ui";
+import {
+  getGroups,
+  getLeaderboard,
+  getProfiles,
+  type Group,
+  type Player as RelayerPlayer,
+  type Profile,
+} from "../../lib/relayer";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 
 /* ── Types & data ──────────────────────────────────────── */
 type Tab = "points" | "sol";
 
 interface Player {
-  rank:          number;
-  name:          string;
-  initials:      string;
-  github:        string;
-  pals:          number;
-  palsDelta:     number;
-  sol:           number;
-  solDelta:      number;
-  wins:          number;
-  disputes:      number;
-  streak:        number;
-  streakDir:     "up" | "down" | "neutral";
+  rank: number;
+  name: string;
+  initials: string;
+  github: string;
+  pals: number;
+  palsDelta: number;
+  sol: number;
+  solDelta: number;
+  wins: number;
+  disputes: number;
+  streak: number;
+  streakDir: "up" | "down" | "neutral";
+  /** Placeholder until Mongo stores per-user bet volume for leaderboard views. */
+  betCount: number | null;
+  /** Placeholder until Mongo stores per-user completion rate for leaderboard views. */
+  completionRate: number | null;
 }
 
+function toOptionalNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function fromProfile(profile: Profile, rank: number): Player {
+  return {
+    rank,
+    name: profile.name,
+    initials: profile.initials,
+    github: profile.github,
+    pals: profile.pals,
+    palsDelta: 0,
+    sol: profile.sol,
+    solDelta: 0,
+    wins: profile.wins,
+    disputes: profile.disputes,
+    streak: profile.streak,
+    streakDir: profile.streakDir,
+    betCount: toOptionalNumber(profile.betCount),
+    completionRate: toOptionalNumber(profile.completionRate),
+  };
+}
+
+function fromRelayerPlayer(player: RelayerPlayer, rank: number): Player {
+  return {
+    rank,
+    name: player.name,
+    initials: player.initials,
+    github: player.github,
+    pals: player.pals,
+    palsDelta: player.palsDelta,
+    sol: player.sol,
+    solDelta: player.solDelta,
+    wins: player.wins,
+    disputes: player.disputes,
+    streak: player.streak,
+    streakDir: player.streakDir,
+    betCount: toOptionalNumber(player.betCount),
+    completionRate: toOptionalNumber(player.completionRate),
+  };
+}
 
 /* ── Rank badge ────────────────────────────────────────── */
 function RankBadge({ rank }: { rank: number }) {
@@ -51,26 +104,23 @@ function Delta({ value, unit }: { value: number; unit: string }) {
   );
 }
 
-/* ── Win-rate bar ──────────────────────────────────────── */
-function WinBar({ wins, total }: { wins: number; total: number }) {
-  const pct = total === 0 ? 0 : Math.round((wins / total) * 100);
-  const barColor =
-    pct >= 70 ? "#14F195" :
-    pct >= 45 ? "#FFB800" : "#FF4A4A";
-
+/* ── Future metrics placeholder cell ───────────────────── */
+function BetMetricsCell({
+  betCount,
+  completionRate,
+}: {
+  betCount: number | null;
+  completionRate: number | null;
+}) {
+  const hasBetCount = typeof betCount === "number";
+  const hasCompletionRate = typeof completionRate === "number";
   return (
-    <div className="flex items-center gap-2.5">
-      <div className="w-20 h-1.5 rounded-full overflow-hidden" style={{ background: "var(--border)" }}>
-        <motion.div
-          className="h-full rounded-full"
-          initial={{ width: 0 }}
-          animate={{ width: `${pct}%` }}
-          transition={{ duration: 0.8, ease: [0.25, 0.46, 0.45, 0.94], delay: 0.1 }}
-          style={{ background: barColor }}
-        />
-      </div>
-      <Mono className="text-muted-foreground shrink-0" style={{ fontSize: "10px" } as React.CSSProperties}>
-        {wins}/{total} · {pct}%
+    <div className="space-y-0.5">
+      <Mono className="text-foreground block" style={{ fontSize: "10px" } as React.CSSProperties}>
+        {hasBetCount ? `${betCount.toLocaleString()} bets` : "Bets: pending data"}
+      </Mono>
+      <Mono className="text-muted-foreground block" style={{ fontSize: "10px" } as React.CSSProperties}>
+        {hasCompletionRate ? `${completionRate.toFixed(1)}% completion` : "Completion rate: pending data"}
       </Mono>
     </div>
   );
@@ -79,52 +129,111 @@ function WinBar({ wins, total }: { wins: number; total: number }) {
 /* ── Main view ─────────────────────────────────────────── */
 export function LeaderboardView() {
   const [tab, setTab] = useState<Tab>("points");
+  const [groups, setGroups] = useState<Group[]>([]);
+  const [activeGroupId, setActiveGroupId] = useState("");
 
-  // Live from the relayer (Mongo-backed) when available; design fixtures otherwise.
   const [players, setPlayers] = useState<Player[]>([]);
-  const [live, setLive] = useState(false);
+  const [playersLive, setPlayersLive] = useState(false);
+  const [groupsLive, setGroupsLive] = useState(false);
 
   useEffect(() => {
     let alive = true;
-    getProfiles()
-      .then(({ profiles }) => {
-        if (!alive || !profiles.length) return;
-        const mapped = profiles
+
+    const load = async (): Promise<void> => {
+      const [groupsResult, profilesResult] = await Promise.allSettled([
+        getGroups(),
+        getProfiles(),
+      ]);
+      if (!alive) return;
+
+      if (groupsResult.status === "fulfilled") {
+        const nextGroups = groupsResult.value.groups;
+        setGroups(nextGroups);
+        setGroupsLive(true);
+        setActiveGroupId((currentId) => (
+          nextGroups.some((group) => group.id === currentId)
+            ? currentId
+            : nextGroups[0]?.id ?? ""
+        ));
+      } else {
+        setGroups([]);
+        setGroupsLive(false);
+        setActiveGroupId("");
+      }
+
+      if (profilesResult.status === "fulfilled" && profilesResult.value.profiles.length) {
+        const mapped = [...profilesResult.value.profiles]
           .sort((a, b) => b.pals - a.pals)
-          .map((p, i) => ({
-            rank: i + 1,
-            name: p.name,
-            initials: p.initials,
-            github: p.github,
-            pals: p.pals,
-            palsDelta: 0,
-            sol: p.sol,
-            solDelta: 0,
-            wins: p.wins,
-            disputes: p.disputes,
-            streak: p.streak,
-            streakDir: p.streakDir,
-          } satisfies Player));
+          .map((profile, index) => fromProfile(profile, index + 1));
         setPlayers(mapped);
-        setLive(true);
-      })
-      .catch(() => {
-        getLeaderboard()
-          .then(({ players }) => {
-            if (alive && players.length) { setPlayers(players as Player[]); setLive(true); }
-          })
-      .catch(() => { /* relayer offline or DB unconfigured */ });
-      });
-    return () => { alive = false; };
+        setPlayersLive(true);
+        return;
+      }
+
+      try {
+        const { players: relayerPlayers } = await getLeaderboard();
+        if (!alive) return;
+        if (relayerPlayers.length) {
+          setPlayers(relayerPlayers.map((player, index) => fromRelayerPlayer(player, index + 1)));
+          setPlayersLive(true);
+        } else {
+          setPlayers([]);
+          setPlayersLive(false);
+        }
+      } catch {
+        if (!alive) return;
+        setPlayers([]);
+        setPlayersLive(false);
+      }
+    };
+
+    void load();
+    const interval = setInterval(() => {
+      void load();
+    }, 30_000);
+
+    return () => {
+      alive = false;
+      clearInterval(interval);
+    };
   }, []);
 
-  const sorted = [...players].sort((a, b) =>
-    tab === "points" ? b.pals - a.pals : b.sol - a.sol
+  const activeGroup = useMemo(
+    () => groups.find((group) => group.id === activeGroupId) ?? null,
+    [activeGroupId, groups],
   );
 
-  const poolTotal = tab === "points"
-    ? players.reduce((s, p) => s + p.pals, 0).toLocaleString() + " $PALS"
-    : players.reduce((s, p) => s + p.sol, 0).toFixed(2) + " SOL";
+  const activeGroupMembers = useMemo(
+    () => (activeGroup?.memberUsernames ?? [])
+      .map((username) => username.trim().toLowerCase())
+      .filter(Boolean),
+    [activeGroup],
+  );
+
+  const groupPlayers = useMemo(() => {
+    if (!activeGroup) return [];
+    if (!activeGroupMembers.length) return players;
+    const members = new Set(activeGroupMembers);
+    return players.filter((player) => {
+      const github = player.github.trim().replace(/^@/, "").toLowerCase();
+      const name = player.name.trim().toLowerCase();
+      return members.has(github) || members.has(name);
+    });
+  }, [activeGroup, activeGroupMembers, players]);
+
+  const sorted = useMemo(
+    () => [...groupPlayers].sort((a, b) =>
+      tab === "points" ? b.pals - a.pals : b.sol - a.sol
+    ),
+    [groupPlayers, tab],
+  );
+
+  const poolTotal = useMemo(
+    () => tab === "points"
+      ? `${groupPlayers.reduce((sum, player) => sum + player.pals, 0).toLocaleString()} $PALS`
+      : `${groupPlayers.reduce((sum, player) => sum + player.sol, 0).toFixed(2)} SOL`,
+    [groupPlayers, tab],
+  );
 
   return (
     <Card>
@@ -136,141 +245,195 @@ export function LeaderboardView() {
             <Trophy size={16} style={{ color: "#FFB800" }} />
           </div>
           <div>
-            <p className="text-foreground" style={{ fontSize: "15px", fontWeight: 700 }}>Live Leaderboard</p>
+            <p className="text-foreground" style={{ fontSize: "15px", fontWeight: 700 }}>Group Leaderboard</p>
             <p className="text-muted-foreground" style={{ fontSize: "11px" }}>
-              {players.length} players · {live ? "live from MongoDB" : "waiting for live data"}
+              {activeGroup
+                ? `${sorted.length} players in ${activeGroup.name} · ${playersLive ? "live from MongoDB" : "waiting for live data"}`
+                : groups.length
+                  ? "Select a group to view its leaderboard"
+                  : groupsLive
+                    ? "No groups joined yet"
+                    : "waiting for group data"}
             </p>
           </div>
         </div>
 
-        {/* Toggle */}
-        <div className="flex items-center gap-1 p-1 rounded-xl border border-border"
-          style={{ background: "var(--muted)" }}>
-          {([
-            { key: "points", label: "$PALS Points" },
-            { key: "sol",    label: "SOL Wager Pool" },
-          ] as { key: Tab; label: string }[]).map(t => (
-            <motion.button
-              key={t.key}
-              whileTap={{ scale: 0.95 }}
-              onClick={() => setTab(t.key)}
-              className="relative px-3 py-1.5 rounded-lg text-[12px] font-medium transition-colors"
-              style={{
-                color: tab === t.key ? "var(--primary-foreground)" : "var(--muted-foreground)",
-              }}
+        <div className="flex items-center gap-2">
+          <div className="w-56">
+            <Select
+              value={activeGroupId}
+              onValueChange={setActiveGroupId}
+              disabled={groups.length === 0}
             >
-              {tab === t.key && (
-                <motion.span
-                  layoutId="tab-bg"
-                  className="absolute inset-0 rounded-lg"
-                  style={{ background: "var(--primary)" }}
-                  transition={{ type: "spring", duration: 0.35, bounce: 0.15 }}
-                />
-              )}
-              <span className="relative">{t.label}</span>
-            </motion.button>
-          ))}
+              <SelectTrigger className="h-9">
+                <SelectValue placeholder="Select your group" />
+              </SelectTrigger>
+              <SelectContent>
+                {groups.map((group) => (
+                  <SelectItem key={group.id} value={group.id}>
+                    {group.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Toggle */}
+          <div className="flex items-center gap-1 p-1 rounded-xl border border-border"
+            style={{ background: "var(--muted)" }}>
+            {([
+              { key: "points", label: "$PALS Points" },
+              { key: "sol", label: "SOL Wager Pool" },
+            ] as { key: Tab; label: string }[]).map((entry) => (
+              <motion.button
+                key={entry.key}
+                whileTap={{ scale: 0.95 }}
+                onClick={() => setTab(entry.key)}
+                className="relative px-3 py-1.5 rounded-lg text-[12px] font-medium transition-colors"
+                style={{
+                  color: tab === entry.key ? "var(--primary-foreground)" : "var(--muted-foreground)",
+                }}
+              >
+                {tab === entry.key && (
+                  <motion.span
+                    layoutId="tab-bg"
+                    className="absolute inset-0 rounded-lg"
+                    style={{ background: "var(--primary)" }}
+                    transition={{ type: "spring", duration: 0.35, bounce: 0.15 }}
+                  />
+                )}
+                <span className="relative">{entry.label}</span>
+              </motion.button>
+            ))}
+          </div>
         </div>
       </div>
+
+      {activeGroup && activeGroupMembers.length === 0 && (
+        <div className="px-5 py-2 border-b border-border" style={{ background: "var(--muted)" }}>
+          <Mono className="text-muted-foreground" style={{ fontSize: "10px" } as React.CSSProperties}>
+            Group membership roster is missing, so this view currently shows all available leaderboard profiles.
+          </Mono>
+        </div>
+      )}
 
       {/* Column headers */}
       <div
         className="grid px-5 py-2 border-b border-border gap-3"
-        style={{ gridTemplateColumns: "36px 1fr 140px 160px 1fr" }}
+        style={{ gridTemplateColumns: "36px 1fr 140px 160px 220px" }}
       >
-        {["Rank", "Player", tab === "points" ? "$PALS Balance" : "SOL Balance", "Net Change", "Win Rate"].map(h => (
-          <Mono key={h} className="text-muted-foreground uppercase" style={{ fontSize: "9px", letterSpacing: "0.1em" } as React.CSSProperties}>
-            {h}
+        {["Rank", "Player", tab === "points" ? "$PALS Balance" : "SOL Balance", "Net Change", "Bet Activity"].map((header) => (
+          <Mono key={header} className="text-muted-foreground uppercase" style={{ fontSize: "9px", letterSpacing: "0.1em" } as React.CSSProperties}>
+            {header}
           </Mono>
         ))}
       </div>
 
       {/* Rows */}
       <div className="divide-y divide-border">
-        <AnimatePresence>
-          {sorted.map((player, idx) => {
-            const isFirst = idx === 0;
-            return (
-              <motion.div
-                key={player.name}
-                layout
-                initial={{ opacity: 0, x: -8 }}
-                animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: 0.22, delay: idx * 0.03 }}
-                className="grid items-center px-5 py-3.5 gap-3 group hover:bg-muted/30 transition-colors duration-100"
-                style={{
-                  gridTemplateColumns: "36px 1fr 140px 160px 1fr",
-                  background: isFirst ? "rgba(255,184,0,0.04)" : undefined,
-                }}
-              >
-                {/* Rank */}
-                <div className="flex items-center justify-center">
-                  <RankBadge rank={idx + 1} />
-                </div>
-
-                {/* Player */}
-                <div className="flex items-center gap-2.5 min-w-0">
-                  <Avatar initials={player.initials} size={32} />
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      <span className="text-foreground truncate"
-                        style={{ fontSize: "13px", fontWeight: 600 }}>
-                        {player.name}
-                      </span>
-                      {player.streak >= 3 && (
-                        <motion.span
-                          animate={{ scale: [1, 1.12, 1] }}
-                          transition={{ repeat: Infinity, duration: 2.5 }}
-                          className="flex items-center gap-0.5 px-1.5 py-0.5 rounded-md shrink-0"
-                          style={{
-                            background: "rgba(255,74,74,0.12)",
-                            border: "1px solid rgba(255,74,74,0.2)",
-                            fontSize: "9px",
-                            fontFamily: "'JetBrains Mono', monospace",
-                            color: "#FF4A4A",
-                          }}
-                        >
-                          <Flame size={8} /> {player.streak}
-                        </motion.span>
-                      )}
-                    </div>
-                    <a
-                      href="#"
-                      className="flex items-center gap-1 text-muted-foreground hover:text-primary transition-colors"
-                      style={{ fontSize: "10px" }}
-                    >
-                      <Github size={9} />
-                      <Mono style={{ fontSize: "10px" } as React.CSSProperties}>@{player.github}</Mono>
-                    </a>
+        {!activeGroup && (
+          <div className="px-5 py-10 flex items-center justify-center">
+            <Mono className="text-muted-foreground" style={{ fontSize: "11px" } as React.CSSProperties}>
+              Join a group chat to view group-specific rankings.
+            </Mono>
+          </div>
+        )}
+        {activeGroup && sorted.length === 0 && (
+          <div className="px-5 py-10 flex items-center justify-center">
+            <Mono className="text-muted-foreground" style={{ fontSize: "11px" } as React.CSSProperties}>
+              No leaderboard profiles available for this group yet.
+            </Mono>
+          </div>
+        )}
+        {activeGroup && sorted.length > 0 && (
+          <AnimatePresence>
+            {sorted.map((player, idx) => {
+              const isFirst = idx === 0;
+              return (
+                <motion.div
+                  key={`${activeGroup.id}-${player.github}`}
+                  layout
+                  initial={{ opacity: 0, x: -8 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: 0.22, delay: idx * 0.03 }}
+                  className="grid items-center px-5 py-3.5 gap-3 group hover:bg-muted/30 transition-colors duration-100"
+                  style={{
+                    gridTemplateColumns: "36px 1fr 140px 160px 220px",
+                    background: isFirst ? "rgba(255,184,0,0.04)" : undefined,
+                  }}
+                >
+                  {/* Rank */}
+                  <div className="flex items-center justify-center">
+                    <RankBadge rank={idx + 1} />
                   </div>
-                </div>
 
-                {/* Balance */}
-                <div>
-                  <Mono className="text-foreground"
-                    style={{ fontSize: "15px", fontWeight: 700 } as React.CSSProperties}>
-                    {tab === "points"
-                      ? player.pals.toLocaleString()
-                      : player.sol.toFixed(2)}
-                  </Mono>
-                  <Mono className="text-muted-foreground" style={{ fontSize: "9px" } as React.CSSProperties}>
-                    {tab === "points" ? "$PALS" : "SOL"}
-                  </Mono>
-                </div>
+                  {/* Player */}
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <Avatar initials={player.initials} size={32} />
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="text-foreground truncate"
+                          style={{ fontSize: "13px", fontWeight: 600 }}>
+                          {player.name}
+                        </span>
+                        {player.streak >= 3 && (
+                          <motion.span
+                            animate={{ scale: [1, 1.12, 1] }}
+                            transition={{ repeat: Infinity, duration: 2.5 }}
+                            className="flex items-center gap-0.5 px-1.5 py-0.5 rounded-md shrink-0"
+                            style={{
+                              background: "rgba(255,74,74,0.12)",
+                              border: "1px solid rgba(255,74,74,0.2)",
+                              fontSize: "9px",
+                              fontFamily: "'JetBrains Mono', monospace",
+                              color: "#FF4A4A",
+                            }}
+                          >
+                            <Flame size={8} /> {player.streak}
+                          </motion.span>
+                        )}
+                      </div>
+                      <a
+                        href="#"
+                        className="flex items-center gap-1 text-muted-foreground hover:text-primary transition-colors"
+                        style={{ fontSize: "10px" }}
+                      >
+                        <Github size={9} />
+                        <Mono style={{ fontSize: "10px" } as React.CSSProperties}>@{player.github}</Mono>
+                      </a>
+                    </div>
+                  </div>
 
-                {/* Delta */}
-                <Delta
-                  value={tab === "points" ? player.palsDelta : player.solDelta}
-                  unit={tab === "points" ? "PALS" : "SOL"}
-                />
+                  {/* Balance */}
+                  <div>
+                    <Mono className="text-foreground"
+                      style={{ fontSize: "15px", fontWeight: 700 } as React.CSSProperties}>
+                      {tab === "points"
+                        ? player.pals.toLocaleString()
+                        : player.sol.toFixed(2)}
+                    </Mono>
+                    <Mono className="text-muted-foreground" style={{ fontSize: "9px" } as React.CSSProperties}>
+                      {tab === "points" ? "$PALS" : "SOL"}
+                    </Mono>
+                  </div>
 
-                {/* Win rate */}
-                <WinBar wins={player.wins} total={player.disputes} />
-              </motion.div>
-            );
-          })}
-        </AnimatePresence>
+                  {/* Delta */}
+                  <Delta
+                    value={tab === "points" ? player.palsDelta : player.solDelta}
+                    unit={tab === "points" ? "PALS" : "SOL"}
+                  />
+
+                  {/* Future metric placeholders */}
+                  <BetMetricsCell
+                    betCount={player.betCount}
+                    completionRate={player.completionRate}
+                  />
+                </motion.div>
+              );
+            })}
+          </AnimatePresence>
+        )}
       </div>
 
       {/* Footer */}
