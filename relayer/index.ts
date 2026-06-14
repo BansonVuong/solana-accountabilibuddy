@@ -719,7 +719,7 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, { commitmentId: body.commitmentId, signature, explorer: explorerUrl(signature) });
     }
 
-    // GET /scoreboard?sport=nba|nfl|nhl|soccer[&league=epl|laliga|mls|<leagueId>]
+    // GET /scoreboard?sport=nba|nfl|nhl|soccer[&league=epl|laliga|mls|worldcup|<leagueId>]
     // Returns upcoming games currently in the sports-bet creation window.
     if (req.method === "GET" && req.url?.startsWith("/scoreboard")) {
       const params = new URL(req.url, "http://x").searchParams;
