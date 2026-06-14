@@ -224,9 +224,9 @@ function BetMetricsCell({
 
 function WinRateTrend({ points }: { points: number[] }) {
   const series = points.length >= 2 ? points : [0, points[0] ?? 0];
-  const width = 140;
-  const height = 30;
-  const pad = 2;
+  const width = 220;
+  const height = 34;
+  const pad = 3;
   const min = Math.min(...series);
   const max = Math.max(...series);
   const range = max - min || 1;
@@ -235,17 +235,22 @@ function WinRateTrend({ points }: { points: number[] }) {
   const toY = (value: number): number => (
     height - pad - ((value - min) / range) * (height - pad * 2)
   );
-  const pointsAttr = series
-    .map((value, index) => `${pad + index * xStep},${toY(value)}`)
+  const chartPoints = series.map((value, index) => ({
+    x: pad + index * xStep,
+    y: toY(value),
+  }));
+  const pointsAttr = chartPoints
+    .map((point) => `${point.x},${point.y}`)
     .join(" ");
   const delta = series[series.length - 1] - series[0];
   const stroke = delta > 0 ? "#14F195" : delta < 0 ? "#FF4A4A" : "#94A3B8";
-  const finalX = pad + (series.length - 1) * xStep;
-  const finalY = toY(series[series.length - 1]);
+  const finalPoint = chartPoints[chartPoints.length - 1] ?? { x: width - pad, y: baseline };
+  const firstPoint = chartPoints[0] ?? { x: pad, y: baseline };
+  const areaPointsAttr = `${firstPoint.x},${height - pad} ${pointsAttr} ${finalPoint.x},${height - pad}`;
   return (
     <svg
       viewBox={`0 0 ${width} ${height}`}
-      className="w-[140px] h-[30px] shrink-0"
+      className="w-full h-[34px]"
       role="img"
       aria-label="player payout trend"
     >
@@ -258,15 +263,20 @@ function WinRateTrend({ points }: { points: number[] }) {
         strokeDasharray="2 3"
         strokeWidth="1"
       />
+      <polygon
+        points={areaPointsAttr}
+        fill={stroke}
+        fillOpacity="0.12"
+      />
       <polyline
         fill="none"
         stroke={stroke}
-        strokeWidth="2"
+        strokeWidth="2.25"
         strokeLinejoin="round"
         strokeLinecap="round"
         points={pointsAttr}
       />
-      <circle cx={finalX} cy={finalY} r="2.5" fill={stroke} />
+      <circle cx={finalPoint.x} cy={finalPoint.y} r="2.75" fill={stroke} />
     </svg>
   );
 }
@@ -773,8 +783,10 @@ export function LeaderboardView() {
                       </Mono>
                     </div>
                   </div>
-                  <div className="mt-2 flex items-center justify-between gap-2">
-                    <WinRateTrend points={entry.trend} />
+                  <div className="mt-2 flex items-center gap-2.5">
+                    <div className="min-w-0 flex-1">
+                      <WinRateTrend points={entry.trend} />
+                    </div>
                     <Mono className="text-muted-foreground shrink-0" style={{ fontSize: "10px" } as React.CSSProperties}>
                       {entry.winRate.toFixed(0)}%
                     </Mono>
@@ -788,17 +800,6 @@ export function LeaderboardView() {
 
       <div className="overflow-x-auto">
         <div style={{ minWidth: 700 }}>
-          {/* Column headers */}
-          <div
-            className="grid px-5 py-2 border-b border-border gap-3"
-            style={{ gridTemplateColumns: "36px 1fr 130px 150px 210px" }}
-          >
-            {["Rank", "Player", "SOL Balance", "Net Change", "Bet Metrics"].map((header) => (
-              <Mono key={header} className="text-muted-foreground uppercase" style={{ fontSize: "9px", letterSpacing: "0.1em" } as React.CSSProperties}>
-                {header}
-              </Mono>
-            ))}
-          </div>
 
           {/* Rows */}
           <div className="divide-y divide-border">
@@ -806,13 +807,6 @@ export function LeaderboardView() {
               <div className="px-5 py-10 flex items-center justify-center">
                 <Mono className="text-muted-foreground" style={{ fontSize: "11px" } as React.CSSProperties}>
                   Join a group chat to view group-specific rankings.
-                </Mono>
-              </div>
-            )}
-            {activeGroup && sorted.length === 0 && (
-              <div className="px-5 py-10 flex items-center justify-center">
-                <Mono className="text-muted-foreground" style={{ fontSize: "11px" } as React.CSSProperties}>
-                  No leaderboard profiles available for this group yet.
                 </Mono>
               </div>
             )}
