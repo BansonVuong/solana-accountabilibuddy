@@ -950,11 +950,13 @@ export function LeaderboardView({ currentUser = null }: { currentUser?: AuthUser
                       <div>
                         <Mono className="text-foreground"
                           style={{ fontSize: "15px", fontWeight: 700 } as React.CSSProperties}>
-                          {player.sol.toFixed(2)}
+                          {Math.abs(player.sol) < 0.005 ? "—" : player.sol.toFixed(2)}
                         </Mono>
-                        <Mono className="text-muted-foreground" style={{ fontSize: "9px" } as React.CSSProperties}>
-                          SOL
-                        </Mono>
+                        {Math.abs(player.sol) >= 0.005 && (
+                          <Mono className="text-muted-foreground" style={{ fontSize: "9px" } as React.CSSProperties}>
+                            SOL
+                          </Mono>
+                        )}
                       </div>
 
                       {/* Delta */}
