@@ -31,7 +31,7 @@ import { fetchGameResult, fetchScoreboard, type Sport } from "./scraper";
 import {
   isDbConfigured, groups, messages, bets, players, profiles, users, imessageConversations, discordConversations, type GroupDoc, type MessageDoc, type ProfileDoc, type UserDoc, type BetDoc, type IMessageConversationDoc, type DiscordConversationDoc,
 } from "./db";
-import { startDiscordBot, verifyDiscordLinkCode } from "./discord";
+import { startDiscordBot, verifyDiscordLinkCode, announceDiscordLink } from "./discord";
 import idl from "./generated/accountability.json";
 import type { Accountability } from "./generated/accountability";
 
@@ -1020,6 +1020,7 @@ const server = http.createServer(async (req, res) => {
       }
 
       await col.updateOne({ id: authUser.id }, { $set: { discordId: payload.discordId } });
+      void announceDiscordLink(payload, authUser.username);
       return json(res, 200, {
         linked: true,
         username: authUser.username,

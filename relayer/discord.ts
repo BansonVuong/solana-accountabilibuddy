@@ -106,6 +106,10 @@ export async function registerDiscordCommands(): Promise<void> {
 
 // ── bot startup ───────────────────────────────────────────────────────────────
 
+// Running client reference so non-interaction code (e.g. the web link flow
+// completing via POST /discord/link) can post messages into channels.
+let botClient: Client | null = null;
+
 export async function startDiscordBot(): Promise<Client | null> {
   const token = process.env.DISCORD_BOT_TOKEN;
   if (!token) {
@@ -125,7 +129,31 @@ export async function startDiscordBot(): Promise<Client | null> {
   });
 
   await client.login(token);
+  botClient = client;
   return client;
+}
+
+// Posts a confirmation into the channel where /setup was started once the user
+// finishes linking on the web app. Best-effort: never throws.
+export async function announceDiscordLink(
+  payload: DiscordLinkCodePayload,
+  username: string,
+): Promise<void> {
+  if (!botClient || !payload.channelId) return;
+  try {
+    const channel = await botClient.channels.fetch(payload.channelId);
+    if (!channel || !channel.isTextBased() || !("send" in channel)) return;
+    const embed = new EmbedBuilder()
+      .setColor(Colors.Green)
+      .setTitle("✅ Account linked")
+      .setDescription(
+        `<@${payload.discordId}> linked **@${username}** to AccountabiliBuddy.\n\n` +
+        "Use `/bet create` to post a bet or `/profile` to view your record.",
+      );
+    await channel.send({ content: `<@${payload.discordId}>`, embeds: [embed] });
+  } catch (err) {
+    console.warn("Failed to announce Discord link:", err instanceof Error ? err.message : err);
+  }
 }
 
 // ── top-level interaction router ──────────────────────────────────────────────
