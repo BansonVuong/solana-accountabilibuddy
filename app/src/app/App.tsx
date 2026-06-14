@@ -637,7 +637,7 @@ export default function App() {
 
       {/* ═══ Top navigation bar ══════════════════════ */}
       <header
-        className="h-12 border-b border-border flex items-center px-4 gap-4 shrink-0 sticky top-0 z-50"
+        className="h-12 border-b border-border flex items-center px-3 gap-2 sm:px-4 sm:gap-4 shrink-0 sticky top-0 z-50"
         style={{
           background: dark ? "rgba(7,11,20,0.88)" : "rgba(248,250,252,0.9)",
           backdropFilter: "blur(16px)",
@@ -662,9 +662,9 @@ export default function App() {
         </div>
 
         {/* Nav tabs */}
-        <nav className="flex-1 flex items-center justify-center">
+        <nav className="flex-1 flex items-center justify-center overflow-x-auto">
           <div
-            className="flex items-center gap-0.5 p-0.5 rounded-xl border border-border"
+            className="flex min-w-max items-center gap-0.5 p-0.5 rounded-xl border border-border"
             style={{ background: "var(--muted)" }}
           >
             {nav.map(({ id, label, Icon, badge }) => {
@@ -673,7 +673,7 @@ export default function App() {
                 <button
                   key={id}
                   onClick={() => setActiveView(id)}
-                  className="relative flex items-center gap-1.5 px-3 py-1.5 rounded-[10px] transition-colors duration-150"
+                  className="relative flex items-center gap-1.5 px-2 py-1.5 sm:px-3 rounded-[10px] transition-colors duration-150"
                   style={{
                     fontSize: "12px",
                     fontWeight: active ? 600 : 400,
@@ -729,7 +729,7 @@ export default function App() {
                   animate={{ opacity: 1, y: 0, scale: 1 }}
                   exit={{ opacity: 0, y: -6, scale: 0.98 }}
                   transition={{ duration: 0.14 }}
-                  className="absolute right-0 top-[calc(100%+10px)] w-80 rounded-xl border border-border p-3 z-[60]"
+                  className="absolute right-0 top-[calc(100%+10px)] w-[calc(100vw-1rem)] max-w-80 rounded-xl border border-border p-3 z-[60]"
                   style={{
                     background: dark ? "rgba(8,13,24,0.98)" : "rgba(255,255,255,0.98)",
                     boxShadow: "0 10px 30px rgba(0,0,0,0.2)",
@@ -807,7 +807,7 @@ export default function App() {
                   animate={{ opacity: 1, y: 0, scale: 1 }}
                   exit={{ opacity: 0, y: -6, scale: 0.98 }}
                   transition={{ duration: 0.14 }}
-                  className="absolute right-0 top-[calc(100%+10px)] w-72 rounded-xl border border-border p-3 z-[60]"
+                  className="absolute right-0 top-[calc(100%+10px)] w-[calc(100vw-1rem)] max-w-72 rounded-xl border border-border p-3 z-[60]"
                   style={{
                     background: dark ? "rgba(8,13,24,0.98)" : "rgba(255,255,255,0.98)",
                     boxShadow: "0 10px 30px rgba(0,0,0,0.2)",
@@ -898,7 +898,7 @@ export default function App() {
 
       {/* ═══ View title strip ════════════════════════ */}
       <div
-        className="px-5 py-3.5 border-b border-border shrink-0"
+        className="hidden sm:block px-5 py-3.5 border-b border-border shrink-0"
         style={{ background: dark ? "rgba(14,23,40,0.62)" : "rgba(255,255,255,0.8)" }}
       >
         <div className="max-w-6xl mx-auto flex items-center justify-between">
@@ -916,10 +916,10 @@ export default function App() {
       {/* ═══ Main content ════════════════════════════ */}
       <main className="flex-1 overflow-auto">
         <div
-          className="max-w-6xl mx-auto px-5 py-5"
+          className="max-w-6xl mx-auto px-3 py-3 sm:px-5 sm:py-5"
           style={{
             height: "100%",
-            minHeight: "calc(100vh - 152px)",
+            minHeight: "calc(100dvh - 120px)",
           }}
         >
           <AnimatePresence mode="wait">
@@ -930,8 +930,8 @@ export default function App() {
               exit={{ opacity: 0, y: -8 }}
               transition={{ duration: 0.22, ease: [0.25, 0.46, 0.45, 0.94] }}
               style={{
-                height: activeView === "chat" ? "calc(100vh - 200px)" : "auto",
-                minHeight: activeView === "chat" ? "520px" : undefined,
+                height: activeView === "chat" ? "calc(100dvh - 188px)" : "auto",
+                minHeight: activeView === "chat" ? "380px" : undefined,
               }}
             >
               {activeView === "chat"        && (
@@ -957,7 +957,9 @@ export default function App() {
       </main>
 
       {/* ═══ Status bar ══════════════════════════════ */}
-      <StatusBar />
+      <div className="hidden sm:block">
+        <StatusBar />
+      </div>
     </div>
   );
 }
