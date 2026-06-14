@@ -5,6 +5,13 @@ enum MessageBetType: String, Codable, CaseIterable, Identifiable {
     case DEV
 
     var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .PERSONAL: return "PERSONAL"
+        case .DEV: return "Sports"
+        }
+    }
 }
 
 enum MessageBetVoteChoice: String, Codable, CaseIterable, Identifiable {

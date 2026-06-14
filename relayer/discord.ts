@@ -1053,39 +1053,18 @@ async function handleVote(
   const user = await requireLinkedUserFromDiscordId(interaction.user.id, interaction);
   if (!user) return;
 
-  const betsCol = await bets();
-  if (!betsCol) {
-    await interaction.followUp({ content: "Database not available.", ephemeral: true });
+  const { ok, status, data } = await relayerCall("POST", "/bets/vote", user, { betId, votedFor });
+  if (!ok || !data?.bet) {
+    const reason = (data && typeof data.error === "string") ? data.error : `relayer returned ${status}`;
+    await interaction.followUp({ content: `Couldn't cast this vote: ${reason}`, ephemeral: true });
     return;
   }
 
-  const existing = await betsCol.findOne({ id: betId });
-  if (!existing) {
-    await interaction.followUp({ content: "Bet not found.", ephemeral: true });
-    return;
-  }
-  if (existing.status !== "ACTIVE") {
-    await interaction.followUp({ content: "This bet is not in voting stage.", ephemeral: true });
-    return;
-  }
-
-  const votesByVoter = { ...(existing.votesByVoter ?? {}), [user.username]: votedFor };
-  const votes = Object.values(votesByVoter);
-  const challengerVotes = votes.filter((v) => v === "challenger").length;
-  const acceptorVotes = votes.filter((v) => v === "acceptor").length;
-  const witnesses = existing.witnesses ?? 1;
-
-  let statusUpdate: Partial<BetDoc> = { votesByVoter };
-
-  if (challengerVotes >= witnesses) {
-    statusUpdate = { ...statusUpdate, status: "COMPLETED", resolvedWinner: "challenger" };
-  } else if (acceptorVotes >= witnesses) {
-    statusUpdate = { ...statusUpdate, status: "COMPLETED", resolvedWinner: "acceptor" };
-  }
-
-  await betsCol.updateOne({ id: betId }, { $set: statusUpdate });
-
-  const updated = { ...existing, ...statusUpdate };
+  const updated = data.bet as BetDoc;
+  const votes = Object.values(updated.votesByVoter ?? {});
+  const challengerVotes = votes.filter((vote) => vote === "challenger").length;
+  const acceptorVotes = votes.filter((vote) => vote === "acceptor").length;
+  const witnesses = updated.witnesses ?? 1;
   const embed = buildBetEmbed(updated, user.username);
   const rows = buildBetActionRows(updated, user.username);
 
@@ -1228,14 +1207,15 @@ function buildBetActionRows(bet: BetDoc, viewerUsername: string): ActionRowBuild
   // bet offers an action: take the opposing side.
   if (bet.validation === "sports") {
     if (bet.status === "PENDING") {
-      const isChallenger = viewerUsername.toLowerCase() === bet.challenger.toLowerCase();
+      // Button state is baked into the message and shown identically to every
+      // viewer, so we can't disable it just for the challenger. The click
+      // handler rejects the challenger at runtime instead.
       rows.push(
         new ActionRowBuilder<ButtonBuilder>().addComponents(
           new ButtonBuilder()
             .setCustomId(`accept:${bet.id}`)
             .setLabel("Take the other side")
-            .setStyle(ButtonStyle.Success)
-            .setDisabled(isChallenger),
+            .setStyle(ButtonStyle.Success),
         ),
       );
     }
@@ -1243,12 +1223,13 @@ function buildBetActionRows(bet: BetDoc, viewerUsername: string): ActionRowBuild
   }
 
   if (bet.status === "PENDING") {
-    const isChallenger = viewerUsername.toLowerCase() === bet.challenger.toLowerCase();
+    // Button state is baked into the message and shown identically to every
+    // viewer, so we can't disable it just for the challenger. The click handler
+    // rejects the challenger at runtime instead.
     const acceptBtn = new ButtonBuilder()
       .setCustomId(`accept:${bet.id}`)
       .setLabel("Accept Bet")
-      .setStyle(ButtonStyle.Success)
-      .setDisabled(isChallenger);
+      .setStyle(ButtonStyle.Success);
 
     rows.push(new ActionRowBuilder<ButtonBuilder>().addComponents(acceptBtn));
   }

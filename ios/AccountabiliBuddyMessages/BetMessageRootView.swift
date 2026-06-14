@@ -9,11 +9,11 @@ struct BetMessageRootView: View {
             VStack(spacing: 12) {
                 if viewModel.isSignedIn {
                     accountCard
+                    selectedBetCard
                     conversationCard
                     if viewModel.conversation != nil {
                         composeCard
                     }
-                    selectedBetCard
                 } else {
                     authenticationCard
                 }
@@ -229,7 +229,7 @@ struct BetMessageRootView: View {
 
             Picker("Type", selection: $viewModel.betType) {
                 ForEach(MessageBetType.allCases) { type in
-                    Text(type.rawValue).tag(type)
+                    Text(type.label).tag(type)
                 }
             }
             .pickerStyle(.segmented)
@@ -433,7 +433,7 @@ struct BetMessageRootView: View {
                         Text("iMessage bet")
                             .font(.caption)
                             .foregroundStyle(.secondary)
-                        Text("\(card.type.rawValue) · \(card.statusLabel)")
+                        Text("\(card.type.label) · \(card.statusLabel)")
                             .font(.headline)
                     }
                     Spacer()
@@ -470,6 +470,8 @@ struct BetMessageRootView: View {
                         .multilineTextAlignment(.trailing)
                 }
 
+                votingSection(for: card)
+
                 HStack {
                     Button("Refresh") {
                         guard let id = viewModel.selectedBetId else { return }
@@ -502,6 +504,90 @@ struct BetMessageRootView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(8)
         .background(color.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    @ViewBuilder
+    private func votingSection(for card: MessageBetCard) -> some View {
+        if card.validation == "witness" {
+            Divider()
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Text("Witness vote")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Text("\(card.votes.total)/\(card.witnessesRequired) cast")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+
+                if let winner = card.winner {
+                    let name = card.winnerName ?? (winner == .challenger ? card.challenger : card.acceptor)
+                    Label("Winner: @\(name)", systemImage: "trophy.fill")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.green)
+                }
+
+                HStack(spacing: 8) {
+                    voteButton(for: card, choice: .challenger, username: card.challenger, count: card.votes.challenger)
+                    voteButton(for: card, choice: .acceptor, username: card.acceptor, count: card.votes.acceptor)
+                }
+
+                if !card.actions.canVote && card.winner == nil {
+                    Text(votingHint(for: card))
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
+            }
+        }
+    }
+
+    private func voteButton(
+        for card: MessageBetCard,
+        choice: MessageBetVoteChoice,
+        username: String,
+        count: Int
+    ) -> some View {
+        let isMyVote = card.votes.myVote == choice
+        return Button {
+            Task { await viewModel.voteSelectedBet(choice) }
+        } label: {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("@\(username)")
+                    .font(.caption.weight(.bold))
+                    .lineLimit(1)
+                Text("\(count) vote\(count == 1 ? "" : "s")")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(8)
+            .background(
+                (isMyVote ? Color.accentColor.opacity(0.18) : Color.secondary.opacity(0.08)),
+                in: RoundedRectangle(cornerRadius: 8)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(isMyVote ? Color.accentColor : Color.clear, lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+        .disabled(!card.actions.canVote || viewModel.isBusy)
+    }
+
+    private func votingHint(for card: MessageBetCard) -> String {
+        let me = viewModel.currentUser?.username.lowercased()
+        let isParticipant = me != nil && [card.challenger, card.acceptor].contains { $0.lowercased() == me }
+        if isParticipant {
+            return "You’re in this bet, so you can’t vote. Only witnesses — people who aren’t the challenger or acceptor — pick the winner."
+        }
+        if card.status.lowercased() == "pending" {
+            return "Voting opens once someone accepts this bet."
+        }
+        if card.onChain.enabled && card.stake.currency == "SOL" && card.onChain.state != "locked" {
+            return "Both sides must stake on-chain before voting opens."
+        }
+        return "Only people who aren’t in this bet can vote for the winner."
     }
 
     @ViewBuilder

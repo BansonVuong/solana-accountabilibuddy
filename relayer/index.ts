@@ -442,24 +442,27 @@ async function crankSportsBets(): Promise<void> {
     if (!bet.oraclePubkey.equals(oracle.publicKey)) continue;
     if (!bet.opponent) continue;
 
-    // Decode game_id ([u8; 32], zero-padded) back to a string
-    const gameId = decodeGameId(bet.gameId);
-
-    // Chat bets reuse this escrow but store a non-numeric bet id as the game id and
-    // are settled from witness votes by crankWitnessBets — never from sports feeds.
-    if (!/^\d+$/.test(gameId)) continue;
+    // New sports bets use the unique Mongo bet id as the on-chain game_id so one
+    // creator can place multiple wagers on the same event without a PDA collision.
+    // Legacy sports bets stored the numeric event id directly on-chain.
+    const onChainGameId = decodeGameId(bet.gameId);
+    let gameId = /^\d+$/.test(onChainGameId) ? onChainGameId : "";
     // sport is stored on-chain as a u8 enum (0=soccer, 1=nba, 2=nfl), but the
     // linked bet doc can override this (e.g. NHL shares enum id=2).
     let sport: Sport = ON_CHAIN_SPORT_BY_INDEX[bet.sport as number] ?? "soccer";
     if (betsCol) {
       const linkedBet = await betsCol.findOne(
         { betPda: betPubkey.toBase58() },
-        { projection: { _id: 0, validation: 1, sport: 1 } },
+        { projection: { _id: 0, validation: 1, sport: 1, espnGameId: 1 } },
       );
       if (linkedBet?.validation === "sports" && isSupportedSport(linkedBet.sport)) {
         sport = linkedBet.sport;
+        gameId = linkedBet.espnGameId?.trim() ?? gameId;
       }
     }
+    // Chat/witness bets also use a non-numeric id, but have no linked sports
+    // event and are settled by crankWitnessBets instead.
+    if (!/^\d+$/.test(gameId)) continue;
 
     let result;
     try {
@@ -1545,10 +1548,11 @@ const server = http.createServer(async (req, res) => {
           }
           const startTime = sportsKickoffSec;
           const settleAfter = startTime + Math.max(1, SPORTS_BET_SETTLE_AFTER_SECS);
-          // Sports bets store the real numeric event id so crankSportsBets settles them.
+          // Use the unique database bet id on-chain. The real numeric event id
+          // remains in espnGameId and is used by crankSportsBets for settlement.
           const onChainSport = ON_CHAIN_SPORT_INDEX[sport as Sport];
           const backsHome    = challengerBacksHome ?? true;
-          const gid = gameIdBytes(sportsGameId);
+          const gid = gameIdBytes(betDoc.id);
           const betPda = sportsBetPda(challengerKp.publicKey, gid);
           const vault = sportsVaultPda(betPda);
           const sig = await programAs(challengerKp)
@@ -1770,7 +1774,8 @@ const server = http.createServer(async (req, res) => {
       }
     }
 
-    // GET /bets  — bets linked to the current user's groups
+    // GET /bets — bets linked to the current user's groups, plus active public
+    // witness votes. Pending offers and completed bets remain group-private.
     if (req.method === "GET" && req.url === "/bets") {
       const authUser = await getAuthenticatedUser(req);
       if (!authUser) return json(res, 401, { error: "unauthorized" });
@@ -1790,14 +1795,21 @@ const server = http.createServer(async (req, res) => {
       const legacyBetIds = groupIds.length
         ? await messagesCol.distinct("betId", { groupId: { $in: groupIds }, betId: { $type: "string" } })
         : [];
-      const docs = groupIds.length
-        ? await betsCol.find({
-            $or: [
-              { groupId: { $in: groupIds } },
-              { id: { $in: legacyBetIds } },
-            ],
-          }, { projection: { _id: 0 } }).toArray()
-        : [];
+      const membershipFilters = [
+        ...(groupIds.length ? [
+          { groupId: { $in: groupIds } },
+          { id: { $in: legacyBetIds } },
+        ] : []),
+      ];
+      const docs = await betsCol.find({
+        $or: [
+          ...membershipFilters,
+          {
+            status: "ACTIVE",
+            validation: { $ne: "sports" },
+          },
+        ],
+      }, { projection: { _id: 0 } }).toArray();
       return json(res, 200, { bets: docs.map(normalizeBetDoc) });
     }
 
@@ -1806,9 +1818,7 @@ const server = http.createServer(async (req, res) => {
       const authUser = await getAuthenticatedUser(req);
       if (!authUser) return json(res, 401, { error: "unauthorized" });
       const col = await bets();
-      const groupsCol = await groups();
-      const messagesCol = await messages();
-      if (!col || !groupsCol || !messagesCol) return dbUnconfigured(res);
+      if (!col) return dbUnconfigured(res);
       const body = await readJson(req);
       const betId = typeof body.betId === "string" ? body.betId.trim() : "";
       const voter = authUser.username;
@@ -1821,16 +1831,6 @@ const server = http.createServer(async (req, res) => {
 
       const existing = await col.findOne({ id: betId }, { projection: { _id: 0 } });
       if (!existing) return json(res, 404, { error: "bet not found" });
-      const linkedMessage = existing.groupId
-        ? null
-        : await messagesCol.findOne({ betId }, { projection: { groupId: 1 } });
-      const groupId = existing.groupId ?? linkedMessage?.groupId;
-      const group = groupId
-        ? await groupsCol.findOne({ id: groupId }, { projection: { _id: 0 } })
-        : null;
-      if (existing.source !== "imessage" && existing.source !== "discord" && (!group || !isGroupMember(group, authUser.username))) {
-        return json(res, 403, { error: "group membership required" });
-      }
       const current = normalizeBetDoc(existing);
       const voterLower = voter.toLowerCase();
       const isParticipant = [
@@ -2273,7 +2273,8 @@ async function loadAuthorizedBetForUser(authUser: UserDoc, rawBetId: string): Pr
 
   const group = await groupsCol.findOne({ id: groupId }, { projection: { _id: 0 } });
   if (!group) return { status: 404, error: "group not found" };
-  if (!isGroupMember(group, authUser.username)) {
+  const isPublicWitnessVote = normalized.status === "ACTIVE" && normalized.validation !== "sports";
+  if (!isPublicWitnessVote && !isGroupMember(group, authUser.username)) {
     return { status: 403, error: "group membership required" };
   }
 
@@ -2294,15 +2295,23 @@ function toIMessageBetCard(viewerUsername: string, bet: BetDoc, group: GroupDoc)
       : null;
   const isSports = normalized.validation === "sports";
   const viewerLower = viewerUsername.toLowerCase();
+  const isParticipant = [
+    normalized.challenger,
+    normalized.acceptor,
+    normalized.acceptedBy,
+    normalized.opponentUsername,
+  ].some((name) => (
+    typeof name === "string"
+    && name.trim().toLowerCase() === viewerLower
+  ));
   const canAccept = status === "pending"
     && normalized.challenger.toLowerCase() !== viewerLower
     && (
       normalized.acceptor.toLowerCase() === viewerLower
       || normalized.acceptor.toLowerCase() === "anyone"
     );
-  const canVote = normalized.source !== "imessage"
-    && normalized.source !== "discord"
-    && !isSports
+  const canVote = !isSports
+    && !isParticipant
     && status === "active"
     && !winner
     && !(normalized.onChain && normalized.currency === "SOL" && normalized.onChainState !== "locked");

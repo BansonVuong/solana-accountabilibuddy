@@ -209,7 +209,7 @@ export interface SportsBet {
   amountSol: number;
   oracle: string;
   sport: Sport;
-  /** Numeric sports-feed event id. */
+  /** On-chain escrow identifier; newer bets use their unique database bet id. */
   gameId: string;
   /** true if the creator backs the home team (opponent gets the away side). */
   creatorBacksHome: boolean;
@@ -276,7 +276,7 @@ export type BetVoteChoice = "challenger" | "acceptor";
 
 export interface Bet {
   id: string;
-  source?: "imessage";
+  source?: "imessage" | "discord";
   groupId?: string;
   type: "PERSONAL" | "DEV";
   challenger: string;
@@ -310,7 +310,7 @@ export interface Bet {
   /** Present for sports bets settled by the sports feed instead of witness votes. */
   validation?: "sports";
   sport?: SportKind;
-  /** Legacy field name; stores the sports-feed event id. */
+  /** Stores the sports-feed event id used for settlement. */
   espnGameId?: string;
   homeTeam?: string;
   awayTeam?: string;
@@ -413,7 +413,7 @@ export function acceptBet(betId: string): Promise<{ bet: Bet }> {
   return req("/bets/accept", { method: "POST", body: JSON.stringify({ betId }) });
 }
 
-/** All bets. */
+/** Group-visible bets plus active witness bets open to third-party voting. */
 export function getBets(): Promise<{ bets: Bet[] }> {
   return req("/bets");
 }

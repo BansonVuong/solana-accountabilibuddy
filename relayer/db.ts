@@ -75,7 +75,7 @@ export interface BetDoc {
   validation?: "sports";
   /** Sport key used for sports-feed settlement. */
   sport?: "soccer" | "nba" | "nfl" | "nhl";
-  /** Legacy field name; stores the numeric sports-feed event id to settle against. */
+  /** Numeric sports-feed event id to settle against. */
   espnGameId?: string;
   /** Team display names for the chosen game (for card rendering). */
   homeTeam?: string;

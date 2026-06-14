@@ -364,7 +364,7 @@ final class BetMessageViewModel: ObservableObject {
                 title: "\(betType.rawValue) bet · \(request.stake) SOL",
                 subtitle: request.terms,
                 wallet: profile?.wallet,
-                solBalance: profile?.solBalance
+                solBalance: nil
             )
             sendDraft(draft)
             infoMessage = "Bet created and ready to send in iMessage."

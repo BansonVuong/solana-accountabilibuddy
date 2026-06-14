@@ -508,6 +508,13 @@ export function ChatView({
   const groupBetIds = Array.from(new Set(messages
     .map((message) => message.betId)
     .filter((id): id is string => Boolean(id))));
+  const groupBetIdSet = new Set(groupBetIds);
+  const openWitnessBets = bets.filter((bet) => (
+    bet.status === "ACTIVE"
+    && bet.validation !== "sports"
+    && !isBetParticipant(bet, currentUser.username)
+    && !groupBetIdSet.has(bet.id)
+  ));
   const unresolvedBetCount = groupBetIds
     .filter((id) => {
       const bet = betsById[id];
@@ -1129,6 +1136,38 @@ export function ChatView({
             </motion.div>
           )}
         </AnimatePresence>
+
+        {openWitnessBets.length > 0 && (
+          <div className="border-b border-border px-3 py-3 shrink-0 sm:px-5">
+            <div className="rounded-xl border border-[#9945FF]/25 bg-[#9945FF]/5 p-3">
+              <div className="mb-3 flex items-center justify-between gap-2">
+                <div>
+                  <p className="text-foreground" style={{ fontSize: "12px", fontWeight: 700 }}>
+                    Open Witness Votes
+                  </p>
+                  <p className="text-muted-foreground" style={{ fontSize: "10px" }}>
+                    Third-party votes help decide active bets.
+                  </p>
+                </div>
+                <Pill color="purple">{openWitnessBets.length} OPEN</Pill>
+              </div>
+              <div className="flex gap-3 overflow-x-auto pb-1">
+                {openWitnessBets.map((bet) => (
+                  <div key={bet.id} className="min-w-[320px] max-w-[420px] flex-1">
+                    <EmbeddedBetCard
+                      bet={bet}
+                      voterName={currentUser.username}
+                      onVote={handleVote}
+                      onAccept={handleAccept}
+                      isVoting={Boolean(votingByBetId[bet.id])}
+                      isAccepting={Boolean(acceptingByBetId[bet.id])}
+                    />
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
 
         <div ref={messageListRef} className="flex-1 overflow-y-auto px-3 py-3 space-y-4 sm:px-5 sm:py-5 sm:space-y-5">
           {!activeGroup && (
