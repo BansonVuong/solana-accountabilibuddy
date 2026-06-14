@@ -14,6 +14,9 @@
 //   AUTH_SESSION_TTL_MS session lifetime in milliseconds (default 30 days)
 //   MONGODB_URI       Mongo connection string (optional; enables data routes)
 //   MONGODB_DB        Mongo database name     (default "accountabilibuddy")
+//   DISCORD_BOT_TOKEN        Discord bot token (optional; enables Discord bot)
+//   DISCORD_APPLICATION_ID   Discord app/client ID (for slash command registration)
+//   WEB_BASE_URL             Public URL of the web app (for Discord embed links)
 
 import "dotenv/config";
 import crypto from "crypto";
@@ -26,8 +29,9 @@ import { AnchorProvider, BN, Program, Wallet, web3 } from "@anchor-lang/core";
 
 import { fetchGameResult, fetchScoreboard, type Sport } from "./scraper";
 import {
-  isDbConfigured, groups, messages, bets, players, profiles, users, imessageConversations, type GroupDoc, type MessageDoc, type ProfileDoc, type UserDoc, type BetDoc, type IMessageConversationDoc,
+  isDbConfigured, groups, messages, bets, players, profiles, users, imessageConversations, discordConversations, type GroupDoc, type MessageDoc, type ProfileDoc, type UserDoc, type BetDoc, type IMessageConversationDoc, type DiscordConversationDoc,
 } from "./db";
+import { startDiscordBot } from "./discord";
 import idl from "./generated/accountability.json";
 import type { Accountability } from "./generated/accountability";
 
@@ -910,6 +914,54 @@ const server = http.createServer(async (req, res) => {
       });
     }
 
+    // ── Discord REST routes ───────────────────────────────────────────────────
+
+    // GET /discord/me  — resolve which AccountabiliBuddy user is linked to a Discord id
+    // Query param: discordId=<snowflake>
+    if (req.method === "GET" && req.url?.startsWith("/discord/me")) {
+      const authUser = await getAuthenticatedUser(req);
+      if (!authUser) return json(res, 401, { error: "unauthorized" });
+      return json(res, 200, {
+        linked: Boolean(authUser.discordId),
+        discordId: authUser.discordId ?? null,
+        username: authUser.username,
+      });
+    }
+
+    // DELETE /discord/unlink  — remove the Discord link from the current account
+    if (req.method === "DELETE" && req.url === "/discord/unlink") {
+      const authUser = await getAuthenticatedUser(req);
+      if (!authUser) return json(res, 401, { error: "unauthorized" });
+      const col = await users();
+      if (!col) return dbUnconfigured(res);
+      await col.updateOne({ id: authUser.id }, { $unset: { discordId: "" } });
+      return json(res, 200, { unlinked: true });
+    }
+
+    // GET /discord/bets/:id  — compact bet card payload for Discord rendering
+    const discordBetPathId = req.url ? decodeDiscordBetPathId(req.url) : null;
+    if (req.method === "GET" && discordBetPathId) {
+      const authUser = await getAuthenticatedUser(req);
+      if (!authUser) return json(res, 401, { error: "unauthorized" });
+      const lookup = await loadAuthorizedBetForUser(authUser, discordBetPathId);
+      if ("error" in lookup) return json(res, lookup.status, { error: lookup.error });
+      return json(res, 200, {
+        card: toIMessageBetCard(authUser.username, lookup.bet, lookup.group),
+      });
+    }
+
+    // GET /discord/conversations/:channelId  — get conversation for a Discord channel
+    const discordConvChannelId = req.url ? decodeDiscordConversationChannelId(req.url) : null;
+    if (req.method === "GET" && discordConvChannelId) {
+      const authUser = await getAuthenticatedUser(req);
+      if (!authUser) return json(res, 401, { error: "unauthorized" });
+      const col = await discordConversations();
+      if (!col) return dbUnconfigured(res);
+      const conversation = await col.findOne({ channelId: discordConvChannelId });
+      if (!conversation) return json(res, 404, { error: "no AccountabiliBuddy conversation for this channel" });
+      return json(res, 200, { conversation });
+    }
+
     // ── MongoDB-backed dashboard data ─────────────────────────────────────────
     // All of these return 503 (with a clear message) until MONGODB_URI is set,
     // so the frontend keeps using its design fixtures until the DB is wired up.
@@ -1152,8 +1204,12 @@ const server = http.createServer(async (req, res) => {
       const body = await readJson(req);
       const groupId = typeof body.groupId === "string" ? body.groupId.trim() : "";
       const isIMessage = body.source === "imessage";
+      const isDiscord = body.source === "discord";
       const imessageConversationId = typeof body.imessageConversationId === "string"
         ? body.imessageConversationId.trim()
+        : "";
+      const discordConversationId = typeof body.discordConversationId === "string"
+        ? body.discordConversationId.trim()
         : "";
       const type = body.type === "PERSONAL" || body.type === "DEV" ? body.type : null;
       const challenger = authUser.username;
@@ -1173,7 +1229,7 @@ const server = http.createServer(async (req, res) => {
       let awayTeam = isSports ? `${body.awayTeam ?? ""}`.trim() : undefined;
       let sportsKickoffSec: number | null = null;
 
-      if (!isIMessage && !groupId) return json(res, 400, { error: "groupId is required" });
+      if (!isIMessage && !isDiscord && !groupId) return json(res, 400, { error: "groupId is required" });
       if (!type) return json(res, 400, { error: "type must be PERSONAL or DEV" });
       if (type === "DEV" && !isSports) {
         return json(res, 400, { error: "DEV bets are sports bets now; include sport and gameId" });
@@ -1200,6 +1256,26 @@ const server = http.createServer(async (req, res) => {
           return json(res, 400, { error: "recipient has not joined this conversation" });
         }
         acceptor = canonicalAcceptor;
+      }
+      if (isDiscord) {
+        if (!discordConversationId) {
+          return json(res, 400, { error: "discordConversationId is required for Discord bets" });
+        }
+        const discordConvCol = await discordConversations();
+        if (!discordConvCol) return dbUnconfigured(res);
+        const conversation = await discordConvCol.findOne({ id: discordConversationId });
+        if (!conversation || !conversation.memberUserIds.includes(authUser.id)) {
+          return json(res, 403, { error: "you must be a member of this Discord channel's conversation" });
+        }
+        if (acceptorInput && acceptorInput.toLowerCase() !== "anyone") {
+          const canonicalAcceptor = conversation.memberUsernames.find(
+            (username) => username.toLowerCase() === acceptorInput.toLowerCase(),
+          );
+          if (!canonicalAcceptor) {
+            return json(res, 400, { error: "recipient has not linked their account in this channel" });
+          }
+          acceptor = canonicalAcceptor;
+        }
       }
       if (!isSports && terms.length < 8) return json(res, 400, { error: "terms must be at least 8 characters" });
       const numericStake = Number(stakeInput);
@@ -1285,9 +1361,10 @@ const server = http.createServer(async (req, res) => {
 
       const now = Date.now();
       const ts = formatChatClock(now);
-      const witnesses = isIMessage ? 1 : Math.max(1, Math.floor(toFiniteNumber(body.witnesses, 1)));
-      const minBettors = isIMessage ? 2 : Math.max(1, Math.floor(toFiniteNumber(body.minBettors, 2)));
-      const groupSize = isIMessage ? 2 : Math.max(1, Math.floor(toFiniteNumber(group?.members, 1)));
+      const isMessagingSource = isIMessage || isDiscord;
+      const witnesses = isMessagingSource ? 1 : Math.max(1, Math.floor(toFiniteNumber(body.witnesses, 1)));
+      const minBettors = isMessagingSource ? 2 : Math.max(1, Math.floor(toFiniteNumber(body.minBettors, 2)));
+      const groupSize = isMessagingSource ? 2 : Math.max(1, Math.floor(toFiniteNumber(group?.members, 1)));
 
       // Witness bets (non-sports) carry a resolve-by deadline, an optional accept-by
       // deadline (indefinite when omitted), and a precommitted unresolved fallback.
@@ -1295,7 +1372,7 @@ const server = http.createServer(async (req, res) => {
       if (!isSports) {
         const resolveByDate = toFiniteNumber(
           body.resolveByDate,
-          isIMessage ? now + 7 * 24 * 60 * 60 * 1000 : 0,
+          isMessagingSource ? now + 7 * 24 * 60 * 60 * 1000 : 0,
         );
         if (!resolveByDate || resolveByDate <= now) {
           return json(res, 400, { error: "resolveByDate (a future time) is required" });
@@ -1333,8 +1410,9 @@ const server = http.createServer(async (req, res) => {
 
       const betDoc: BetDoc = {
         id: `bet-${now}-${crypto.randomBytes(3).toString("hex")}`,
-        ...(isIMessage ? { source: "imessage" as const } : { groupId }),
+        ...(isIMessage ? { source: "imessage" as const } : isDiscord ? { source: "discord" as const } : { groupId }),
         ...(isIMessage ? { imessageConversationId } : {}),
+        ...(isDiscord ? { discordConversationId } : {}),
         type,
         challenger,
         acceptor,
@@ -1415,7 +1493,7 @@ const server = http.createServer(async (req, res) => {
         }
       }
 
-      if (isIMessage) {
+      if (isIMessage || isDiscord) {
         return json(res, 201, { bet: normalizeBetDoc(betDoc) });
       }
 
@@ -1469,7 +1547,7 @@ const server = http.createServer(async (req, res) => {
       const linkedMessage = bet.groupId ? null : await messagesCol.findOne({ betId }, { projection: { groupId: 1 } });
       const groupId = bet.groupId ?? linkedMessage?.groupId;
       const group = groupId ? await groupsCol.findOne({ id: groupId }, { projection: { _id: 0 } }) : null;
-      if (bet.source !== "imessage" && (!group || !isGroupMember(group, authUser.username))) {
+      if (bet.source !== "imessage" && bet.source !== "discord" && (!group || !isGroupMember(group, authUser.username))) {
         return json(res, 403, { error: "group membership required" });
       }
       if (authUser.username.toLowerCase() === bet.challenger.toLowerCase()) {
@@ -1651,7 +1729,7 @@ const server = http.createServer(async (req, res) => {
       const group = groupId
         ? await groupsCol.findOne({ id: groupId }, { projection: { _id: 0 } })
         : null;
-      if (!group || !isGroupMember(group, authUser.username)) {
+      if (existing.source !== "imessage" && existing.source !== "discord" && (!group || !isGroupMember(group, authUser.username))) {
         return json(res, 403, { error: "group membership required" });
       }
       const current = normalizeBetDoc(existing);
@@ -1830,6 +1908,9 @@ server.listen(PORT, HOST, () => {
 
 setInterval(() => void runPoll(), POLL_INTERVAL);
 void runPoll();
+
+// Start the Discord bot (no-ops gracefully when DISCORD_BOT_TOKEN is unset).
+void startDiscordBot().catch((err) => console.error("Discord bot failed to start:", err));
 
 async function runPoll(): Promise<void> {
   try {
@@ -2069,6 +2150,21 @@ async function loadAuthorizedBetForUser(authUser: UserDoc, rawBetId: string): Pr
       },
     };
   }
+  if (normalized.source === "discord") {
+    return {
+      status: 200,
+      bet: normalized,
+      group: {
+        id: "discord",
+        name: "Discord channel",
+        initials: "DC",
+        members: 2,
+        pendingBet: normalized.status === "PENDING",
+        lastMsg: normalized.terms,
+        time: "",
+      },
+    };
+  }
 
   const linkedMessage = existing.groupId
     ? null
@@ -2106,6 +2202,7 @@ function toIMessageBetCard(viewerUsername: string, bet: BetDoc, group: GroupDoc)
       || normalized.acceptor.toLowerCase() === "anyone"
     );
   const canVote = normalized.source !== "imessage"
+    && normalized.source !== "discord"
     && !isSports
     && status === "active"
     && !winner
@@ -2243,4 +2340,18 @@ function toInitials(input: unknown): string {
 
 function toFiniteNumber(value: unknown, fallback: number): number {
   return isFiniteNumber(value) ? value : fallback;
+}
+
+function decodeDiscordBetPathId(url: string): string | null {
+  const path = url.split("?")[0] ?? "";
+  const match = /^\/discord\/bets\/([^/]+)$/.exec(path);
+  if (!match?.[1]) return null;
+  return decodeURIComponent(match[1]);
+}
+
+function decodeDiscordConversationChannelId(url: string): string | null {
+  const path = url.split("?")[0] ?? "";
+  const match = /^\/discord\/conversations\/([^/]+)$/.exec(path);
+  if (!match?.[1]) return null;
+  return decodeURIComponent(match[1]);
 }

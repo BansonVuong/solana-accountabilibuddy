@@ -9,12 +9,14 @@
     "build:web": "npm --prefix app run build",
     "check": "npm run relayer:build && npm run build:web",
     "bet": "TS_NODE_TRANSPILE_ONLY=1 ts-node relayer/sports-bet.ts",
+    "discord:register": "TS_NODE_TRANSPILE_ONLY=1 ts-node relayer/register-commands.ts",
     "app": "npm --prefix app run dev",
     "lint:fix": "prettier */*.js \"*/**/*{.js,.ts}\" -w",
     "lint": "prettier */*.js \"*/**/*{.js,.ts}\" --check"
   },
   "dependencies": {
     "@anchor-lang/core": "^1.0.2",
+    "discord.js": "^14.26.4",
     "dotenv": "^17.4.2",
     "mongodb": "^7.3.0"
   },

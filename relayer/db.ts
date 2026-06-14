@@ -49,9 +49,11 @@ export interface MessageDoc {
 export interface BetDoc {
   id: string;
   /** Surface that created the bet. iMessage bets use the Messages conversation instead of a dashboard group. */
-  source?: "imessage";
+  source?: "imessage" | "discord";
   /** AccountabiliBuddy-managed Messages conversation used for invite membership. */
   imessageConversationId?: string;
+  /** Discord channel conversation id for bets created via Discord. */
+  discordConversationId?: string;
   /** Group that owns this bet. Older records may only be linked through a message. */
   groupId?: string;
   type: "PERSONAL" | "DEV";
@@ -165,6 +167,20 @@ export interface UserDoc {
   walletSecret?: string;
   /** Opaque identifiers supplied by Messages.framework; never phone numbers or Apple IDs. */
   imessageParticipantIds?: string[];
+  /** Discord user snowflake ID, linked via /setup in the bot. */
+  discordId?: string;
+}
+
+export interface DiscordConversationDoc {
+  id: string;
+  channelId: string;
+  guildId: string | null;
+  ownerUserId: string;
+  ownerUsername: string;
+  memberUserIds: string[];
+  memberUsernames: string[];
+  createdAt: number;
+  updatedAt: number;
 }
 
 export interface IMessageConversationDoc {
@@ -237,6 +253,10 @@ export async function imessageConversations(): Promise<Collection<IMessageConver
   const db = await getDb();
   return db ? db.collection<IMessageConversationDoc>("imessageConversations") : null;
 }
+export async function discordConversations(): Promise<Collection<DiscordConversationDoc> | null> {
+  const db = await getDb();
+  return db ? db.collection<DiscordConversationDoc>("discordConversations") : null;
+}
 export async function profiles(): Promise<Collection<ProfileDoc> | null> {
   const db = await getDb();
   return db ? db.collection<ProfileDoc>("profiles") : null;
@@ -259,6 +279,11 @@ async function ensureIndexes(db: Db): Promise<void> {
   await db.collection("users").createIndex({ imessageParticipantIds: 1 }, { unique: true, sparse: true });
   await db.collection("imessageConversations").createIndex({ id: 1 }, { unique: true });
   await db.collection("imessageConversations").createIndex({ memberUserIds: 1 });
+  await db.collection("users").createIndex({ discordId: 1 }, { unique: true, sparse: true });
+  await db.collection("bets").createIndex({ discordConversationId: 1 });
+  await db.collection("discordConversations").createIndex({ id: 1 }, { unique: true });
+  await db.collection("discordConversations").createIndex({ channelId: 1 }, { unique: true });
+  await db.collection("discordConversations").createIndex({ memberUserIds: 1 });
   await db.collection("profiles").createIndex({ id: 1 }, { unique: true });
   await db.collection("profiles").createIndex({ github: 1 }, { unique: true });
 }
