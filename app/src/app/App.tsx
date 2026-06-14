@@ -614,7 +614,9 @@ export default function App() {
                         <div className="flex items-start justify-between gap-2">
                           <div className="min-w-0">
                             <p className="text-foreground truncate" style={{ fontSize: "12px", fontWeight: 600 }}>
-                              You were added to {entry.groupName}
+                              {entry.type === "left"
+                                ? `You left ${entry.groupName}`
+                                : `You were added to ${entry.groupName}`}
                             </p>
                             <Mono className="text-muted-foreground block mt-0.5" style={{ fontSize: "10px" } as React.CSSProperties}>
                               {new Date(entry.createdAt).toLocaleString()}

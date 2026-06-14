@@ -16,13 +16,14 @@ describe("group notification storage parsing", () => {
   it("keeps only valid notification entries", () => {
     const raw = JSON.stringify([
       { groupId: "g-1", groupName: "Alpha", createdAt: 100, readAt: null },
-      { groupId: "g-2", groupName: "Beta", createdAt: 200, readAt: 250 },
+      { groupId: "g-2", groupName: "Beta", createdAt: 200, readAt: 250, type: "left" },
       { groupId: "g-3", groupName: "Gamma", createdAt: "oops", readAt: null },
       { groupId: 123, groupName: "Delta", createdAt: 300, readAt: null },
+      { groupId: "g-4", groupName: "Omega", createdAt: 300, readAt: null, type: "unknown" },
     ]);
     expect(parseStoredGroupNotifications(raw)).toEqual([
-      { groupId: "g-1", groupName: "Alpha", createdAt: 100, readAt: null },
-      { groupId: "g-2", groupName: "Beta", createdAt: 200, readAt: 250 },
+      { groupId: "g-1", groupName: "Alpha", createdAt: 100, readAt: null, type: "added" },
+      { groupId: "g-2", groupName: "Beta", createdAt: 200, readAt: 250, type: "left" },
     ]);
   });
 
@@ -42,13 +43,13 @@ describe("group notification merging", () => {
       5000,
     );
     expect(merged).toEqual([
-      { groupId: "g-1", groupName: "Alpha", createdAt: 1200, readAt: 5000 },
+      { groupId: "g-1", groupName: "Alpha", createdAt: 1200, readAt: 5000, type: "added" },
     ]);
   });
 
   it("creates unread notifications when a new unseen group appears", () => {
     const current: GroupNotification[] = [
-      { groupId: "g-1", groupName: "Alpha", createdAt: 1000, readAt: 2000 },
+      { groupId: "g-1", groupName: "Alpha", createdAt: 1000, readAt: 2000, type: "added" },
     ];
     const merged = mergeGroupNotifications(
       current,
@@ -61,14 +62,14 @@ describe("group notification merging", () => {
       9000,
     );
     expect(merged).toEqual([
-      { groupId: "g-2", groupName: "Beta", createdAt: 1200, readAt: null },
-      { groupId: "g-1", groupName: "Alpha", createdAt: 1000, readAt: 2000 },
+      { groupId: "g-2", groupName: "Beta", createdAt: 1200, readAt: null, type: "added" },
+      { groupId: "g-1", groupName: "Alpha", createdAt: 1000, readAt: 2000, type: "added" },
     ]);
   });
 
   it("updates existing notification group names without resetting read state", () => {
     const current: GroupNotification[] = [
-      { groupId: "g-1", groupName: "Old Name", createdAt: 1000, readAt: 2000 },
+      { groupId: "g-1", groupName: "Old Name", createdAt: 1000, readAt: 2000, type: "added" },
     ];
     const merged = mergeGroupNotifications(
       current,
@@ -78,7 +79,23 @@ describe("group notification merging", () => {
       5000,
     );
     expect(merged).toEqual([
-      { groupId: "g-1", groupName: "New Name", createdAt: 1000, readAt: 2000 },
+      { groupId: "g-1", groupName: "New Name", createdAt: 1000, readAt: 2000, type: "added" },
+    ]);
+  });
+
+  it("marks notifications as left when a previously seen group disappears", () => {
+    const current: GroupNotification[] = [
+      { groupId: "g-1", groupName: "Alpha", createdAt: 1000, readAt: 2000, type: "added" },
+    ];
+    const merged = mergeGroupNotifications(
+      current,
+      [],
+      false,
+      new Set(["g-1"]),
+      9000,
+    );
+    expect(merged).toEqual([
+      { groupId: "g-1", groupName: "Alpha", createdAt: 9000, readAt: null, type: "left" },
     ]);
   });
 });
@@ -86,30 +103,30 @@ describe("group notification merging", () => {
 describe("group notification unread logic", () => {
   it("counts only unread entries for the red dot indicator", () => {
     const notifications: GroupNotification[] = [
-      { groupId: "g-1", groupName: "Alpha", createdAt: 1000, readAt: null },
-      { groupId: "g-2", groupName: "Beta", createdAt: 1000, readAt: 1200 },
-      { groupId: "g-3", groupName: "Gamma", createdAt: 1000, readAt: null },
+      { groupId: "g-1", groupName: "Alpha", createdAt: 1000, readAt: null, type: "added" },
+      { groupId: "g-2", groupName: "Beta", createdAt: 1000, readAt: 1200, type: "left" },
+      { groupId: "g-3", groupName: "Gamma", createdAt: 1000, readAt: null, type: "left" },
     ];
     expect(countUnreadGroupNotifications(notifications)).toBe(2);
   });
 
   it("marks unread notifications as read and clears unread count", () => {
     const notifications: GroupNotification[] = [
-      { groupId: "g-1", groupName: "Alpha", createdAt: 1000, readAt: null },
-      { groupId: "g-2", groupName: "Beta", createdAt: 1000, readAt: 1400 },
+      { groupId: "g-1", groupName: "Alpha", createdAt: 1000, readAt: null, type: "added" },
+      { groupId: "g-2", groupName: "Beta", createdAt: 1000, readAt: 1400, type: "left" },
     ];
     const { notifications: next, changed } = markAllGroupNotificationsRead(notifications, 3000);
     expect(changed).toBe(true);
     expect(next).toEqual([
-      { groupId: "g-1", groupName: "Alpha", createdAt: 1000, readAt: 3000 },
-      { groupId: "g-2", groupName: "Beta", createdAt: 1000, readAt: 1400 },
+      { groupId: "g-1", groupName: "Alpha", createdAt: 1000, readAt: 3000, type: "added" },
+      { groupId: "g-2", groupName: "Beta", createdAt: 1000, readAt: 1400, type: "left" },
     ]);
     expect(countUnreadGroupNotifications(next)).toBe(0);
   });
 
   it("returns unchanged when everything is already read", () => {
     const notifications: GroupNotification[] = [
-      { groupId: "g-1", groupName: "Alpha", createdAt: 1000, readAt: 1100 },
+      { groupId: "g-1", groupName: "Alpha", createdAt: 1000, readAt: 1100, type: "added" },
     ];
     const { notifications: next, changed } = markAllGroupNotificationsRead(notifications, 3000);
     expect(changed).toBe(false);
