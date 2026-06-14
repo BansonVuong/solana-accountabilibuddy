@@ -48,10 +48,14 @@ const IMESSAGE_DEEP_LINK_BASE = process.env.IMESSAGE_DEEP_LINK_BASE ?? "accounta
 // Custodial wallets + on-chain SOL bets.
 //   WALLET_SECRET_KEY      encryption key for stored wallet secrets (falls back to AUTH_SECRET)
 //   WALLET_AIRDROP_LAMPORTS devnet airdrop per new wallet (default 2 SOL)
-//   SOCIAL_BET_WINDOW_SECS  sports bet accept window before kickoff (default 120s)
+//   SPORTS_BET_CREATE_WINDOW_SECS max lead time before kickoff to create a sports bet (default 24h)
+//   SPORTS_BET_SCOREBOARD_LOOKAHEAD_DAYS how many future days to scrape for upcoming sports games (default 3)
+//   SPORTS_BET_SETTLE_AFTER_SECS earliest settle-at offset after kickoff for sports bets (default 60s)
 //   SOCIAL_BET_SETTLE_DELAY_SECS  delay before an accepted witness bet can settle (default 15s)
 const WALLET_AIRDROP_LAMPORTS = Number(process.env.WALLET_AIRDROP_LAMPORTS ?? 2 * web3.LAMPORTS_PER_SOL);
-const SOCIAL_BET_WINDOW_SECS  = Number(process.env.SOCIAL_BET_WINDOW_SECS ?? 120);
+const SPORTS_BET_CREATE_WINDOW_SECS = Number(process.env.SPORTS_BET_CREATE_WINDOW_SECS ?? 24 * 60 * 60);
+const SPORTS_BET_SCOREBOARD_LOOKAHEAD_DAYS = Number(process.env.SPORTS_BET_SCOREBOARD_LOOKAHEAD_DAYS ?? 3);
+const SPORTS_BET_SETTLE_AFTER_SECS = Number(process.env.SPORTS_BET_SETTLE_AFTER_SECS ?? 60);
 // Witness bets escrow both stakes atomically at acceptance, so this only spans that
 // single transaction. A posted witness bet itself never expires — it waits for a taker.
 const SOCIAL_BET_SETTLE_DELAY_SECS = Number(
@@ -200,6 +204,15 @@ class InsufficientSolBalanceError extends Error {
 
 function formatSol(lamports: number): string {
   return (lamports / web3.LAMPORTS_PER_SOL).toFixed(4);
+}
+async function currentUnixTimeSec(): Promise<number> {
+  const slot = await connection.getSlot("confirmed");
+  return (await connection.getBlockTime(slot)) ?? Math.floor(Date.now() / 1000);
+}
+
+function isSportsBetWithinCreateWindow(startTimeSec: number, nowSec: number): boolean {
+  if (startTimeSec <= nowSec) return false;
+  return (startTimeSec - nowSec) <= SPORTS_BET_CREATE_WINDOW_SECS;
 }
 
 async function requireSolBalanceForBet(
@@ -680,16 +693,31 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, { commitmentId: body.commitmentId, signature, explorer: explorerUrl(signature) });
     }
 
-    // GET /scoreboard?sport=nba|nfl|soccer[&league=worldcup]  — today's games + IDs
-    // For soccer, an optional league narrows the board (e.g. worldcup, ucl, epl).
+    // GET /scoreboard?sport=nba|nfl|soccer[&league=worldcup]
+    // Returns upcoming games currently in the sports-bet creation window.
     if (req.method === "GET" && req.url?.startsWith("/scoreboard")) {
       const params = new URL(req.url, "http://x").searchParams;
       const sport  = (params.get("sport") ?? "nba") as Sport;
       const league = params.get("league") ?? undefined;
       if (!["soccer", "nba", "nfl"].includes(sport))
         return json(res, 400, { error: "sport must be soccer | nba | nfl" });
-      const games = await fetchScoreboard(sport, league);
-      return json(res, 200, { sport, league: league ?? null, games });
+      const nowMs = Date.now();
+      const betWindowEndMs = nowMs + SPORTS_BET_CREATE_WINDOW_SECS * 1000;
+      const scrapedGames = await fetchScoreboard(sport, league, {
+        daysAhead: SPORTS_BET_SCOREBOARD_LOOKAHEAD_DAYS,
+        includeStarted: false,
+        maxGames: 120,
+      });
+      const games = scrapedGames
+        .filter((game) => !game.isFinal)
+        .filter((game): game is typeof game & { startTimeMs: number } => typeof game.startTimeMs === "number")
+        .filter((game) => game.startTimeMs <= betWindowEndMs);
+      return json(res, 200, {
+        sport,
+        league: league ?? null,
+        games,
+        bettingWindowSeconds: SPORTS_BET_CREATE_WINDOW_SECS,
+      });
     }
 
     // GET /game?sport=nba&id=401584793  — check one game's result
@@ -950,6 +978,7 @@ const server = http.createServer(async (req, res) => {
       const challengerBacksHome = isSports ? body.backsHome !== false : undefined;
       let homeTeam = isSports ? `${body.homeTeam ?? ""}`.trim() : undefined;
       let awayTeam = isSports ? `${body.awayTeam ?? ""}`.trim() : undefined;
+      let sportsKickoffSec: number | null = null;
 
       if (!isIMessage && !groupId) return json(res, 400, { error: "groupId is required" });
       if (!type) return json(res, 400, { error: "type must be PERSONAL or DEV" });
@@ -975,22 +1004,44 @@ const server = http.createServer(async (req, res) => {
         if (!/^\d+$/.test(espnGameId)) {
           return json(res, 400, { error: "gameId must be a numeric ESPN game id" });
         }
-        if (!homeTeam || !awayTeam) {
-          return json(res, 400, { error: "homeTeam and awayTeam are required for sports bets" });
-        }
-        let gameSnapshot: Awaited<ReturnType<typeof fetchGameResult>> = null;
+        let upcomingGames: Awaited<ReturnType<typeof fetchScoreboard>> = [];
         try {
-          gameSnapshot = await fetchGameResult(sport as Sport, espnGameId);
+          upcomingGames = await fetchScoreboard(sport as Sport, undefined, {
+            daysAhead: SPORTS_BET_SCOREBOARD_LOOKAHEAD_DAYS,
+            includeStarted: true,
+            maxGames: 200,
+          });
         } catch (err) {
           return json(res, 502, {
-            error: `failed to validate selected game: ${err instanceof Error ? err.message : String(err)}`,
+            error: `failed to scrape upcoming games: ${err instanceof Error ? err.message : String(err)}`,
           });
         }
-        if (gameSnapshot?.isFinal) {
+        const selectedGame = upcomingGames.find((game) => game.gameId === espnGameId);
+        if (!selectedGame) {
+          return json(res, 400, { error: "selected game is not available on the upcoming ESPN board" });
+        }
+        if (selectedGame.isFinal) {
           return json(res, 400, { error: "selected game is already final" });
         }
-        homeTeam = gameSnapshot?.homeTeam?.trim() || homeTeam;
-        awayTeam = gameSnapshot?.awayTeam?.trim() || awayTeam;
+        if (typeof selectedGame.startTimeMs !== "number" || !Number.isFinite(selectedGame.startTimeMs)) {
+          return json(res, 400, { error: "selected game kickoff time is unavailable from ESPN" });
+        }
+        const chainNowSec = await currentUnixTimeSec();
+        const kickoffSec = Math.floor(selectedGame.startTimeMs / 1000);
+        if (kickoffSec <= chainNowSec) {
+          return json(res, 400, { error: "selected game has already started" });
+        }
+        if (!isSportsBetWithinCreateWindow(kickoffSec, chainNowSec)) {
+          return json(res, 400, {
+            error: "sports bets can only be created within 24 hours before kickoff",
+          });
+        }
+        sportsKickoffSec = kickoffSec;
+        homeTeam = selectedGame.homeTeam?.trim() || homeTeam;
+        awayTeam = selectedGame.awayTeam?.trim() || awayTeam;
+        if (!homeTeam || !awayTeam) {
+          return json(res, 400, { error: "selected game teams are unavailable from ESPN" });
+        }
         if (terms.length < 8) {
           const backedTeam = challengerBacksHome ? homeTeam : awayTeam;
           terms = `${sport?.toUpperCase()}: ${awayTeam} @ ${homeTeam} — ${challenger} backs ${backedTeam}.`;
@@ -1099,8 +1150,11 @@ const server = http.createServer(async (req, res) => {
       // both stakes are escrowed atomically when someone accepts (see POST /bets/accept).
       if (isSports) {
         try {
-          const startTime = Math.floor(now / 1000) + SOCIAL_BET_WINDOW_SECS;
-          const settleAfter = startTime + 1;
+          if (!sportsKickoffSec) {
+            return json(res, 500, { error: "sports bet kickoff was not resolved" });
+          }
+          const startTime = sportsKickoffSec;
+          const settleAfter = startTime + Math.max(1, SPORTS_BET_SETTLE_AFTER_SECS);
           // Sports bets store the real numeric ESPN game id so crankSportsBets settles them.
           const onChainSport = SPORT_NAMES.indexOf(sport as Sport);
           const backsHome    = challengerBacksHome ?? true;

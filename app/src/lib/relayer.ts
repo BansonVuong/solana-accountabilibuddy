@@ -45,6 +45,7 @@ export interface ScoreboardGame {
   status: string;
   isFinal: boolean;
   startTime?: string;
+  startTimeMs?: number;
 }
 
 export type Sport = "soccer" | "nba" | "nfl";
@@ -141,8 +142,9 @@ export function getProfileSummary(): Promise<ProfileSummary> {
 }
 
 /**
- * Today's games + ESPN game IDs for a given sport. For soccer, pass an optional
- * `league` (e.g. "worldcup", "ucl", "epl") to narrow the board to one competition.
+ * Upcoming ESPN games currently exposed for sports betting.
+ * For soccer, pass an optional `league` (e.g. "worldcup", "ucl", "epl")
+ * to narrow the board to one competition.
  */
 export function getScoreboard(
   sport: Sport,
