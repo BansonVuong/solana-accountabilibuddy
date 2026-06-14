@@ -418,6 +418,7 @@ export function ChatView({
   const [dialogError, setDialogError] = useState<string | null>(null);
   const [unreadByGroup, setUnreadByGroup] = useState<Record<string, number>>({});
   const [lastReadByGroup, setLastReadByGroup] = useState<Record<string, number>>({});
+  const activeGroupRef = useRef<string>("");
   const lastReadByGroupRef = useRef<Record<string, number>>({});
   const bottomRef = useRef<HTMLDivElement>(null);
   const unreadStorageKey = `accountabilibuddy_last_read_by_group_${currentUser.username.toLowerCase()}`;
@@ -454,6 +455,9 @@ export function ChatView({
     }
     return dedupedMembers.map((name) => ({ name, initials: toInitials(name) }));
   }, [activeGroupData?.memberUsernames, currentUser.username]);
+  useEffect(() => {
+    activeGroupRef.current = activeGroup;
+  }, [activeGroup]);
 
   useEffect(() => {
     lastReadByGroupRef.current = lastReadByGroup;
@@ -510,7 +514,8 @@ export function ChatView({
       return [group.id, unread] as const;
     }));
     const nextUnreadByGroup = Object.fromEntries(unreadEntries) as Record<string, number>;
-    if (activeGroup) nextUnreadByGroup[activeGroup] = 0;
+    const selectedGroupId = activeGroupRef.current;
+    if (selectedGroupId) nextUnreadByGroup[selectedGroupId] = 0;
     setUnreadByGroup(nextUnreadByGroup);
   }
 
@@ -519,13 +524,15 @@ export function ChatView({
     const nextGroups = groupsRes.groups;
     setGroups(nextGroups);
     setBets(betsRes.bets);
-    if (nextGroups.length > 0) {
-      if (!nextGroups.some((group) => group.id === activeGroup)) {
-        setActiveGroup(nextGroups[0]!.id);
-      }
-    } else {
+    if (nextGroups.length === 0) {
       setActiveGroup("");
       setMessages([]);
+    } else {
+      setActiveGroup((previousGroupId) => (
+        nextGroups.some((group) => group.id === previousGroupId)
+          ? previousGroupId
+          : nextGroups[0]!.id
+      ));
     }
     void refreshUnreadCounts(nextGroups).catch(() => {});
   }
@@ -573,6 +580,15 @@ export function ChatView({
       clearInterval(interval);
     };
   }, [activeGroup]);
+  useEffect(() => {
+    if (!activeGroup || typeof window === "undefined") return;
+    const frameId = window.requestAnimationFrame(() => {
+      bottomRef.current?.scrollIntoView({ block: "end" });
+    });
+    return () => {
+      window.cancelAnimationFrame(frameId);
+    };
+  }, [activeGroup, messages.length]);
 
   useEffect(() => {
     const totalUnread = Object.values(unreadByGroup).reduce((sum, count) => sum + count, 0);
