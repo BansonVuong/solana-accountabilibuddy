@@ -17,6 +17,7 @@ import {
   getLeaderboard,
   getMessages,
   getProfiles,
+  type AuthUser,
   type Bet,
   type BetVoteChoice,
   type ChatMessage,
@@ -95,6 +96,20 @@ function fromRelayerPlayer(player: RelayerPlayer, rank: number): Player {
   };
 }
 
+function fromUsername(username: string): Player {
+  return {
+    rank: 0,
+    name: username,
+    initials: toInitials(username),
+    github: username,
+    sol: 0,
+    solDelta: 0,
+    wins: 0,
+    disputes: 0,
+    streak: 0,
+    streakDir: "neutral",
+  };
+}
 function normalizeHandle(value: string): string {
   return value.trim().replace(/^@/, "").toLowerCase();
 }
@@ -227,16 +242,19 @@ function WinRateTrend({ points }: { points: number[] }) {
   const width = 220;
   const height = 34;
   const pad = 3;
+  const startX = 1.5;
+  const tailWidth = 22;
   const min = Math.min(...series);
   const max = Math.max(...series);
   const range = max - min || 1;
-  const xStep = (width - pad * 2) / (series.length - 1);
+  const trendWidth = Math.max(1, width - startX - pad - tailWidth);
+  const xStep = trendWidth / (series.length - 1);
   const baseline = height / 2;
   const toY = (value: number): number => (
     height - pad - ((value - min) / range) * (height - pad * 2)
   );
   const chartPoints = series.map((value, index) => ({
-    x: pad + index * xStep,
+    x: startX + index * xStep,
     y: toY(value),
   }));
   const pointsAttr = chartPoints
@@ -245,17 +263,19 @@ function WinRateTrend({ points }: { points: number[] }) {
   const delta = series[series.length - 1] - series[0];
   const stroke = delta > 0 ? "#14F195" : delta < 0 ? "#FF4A4A" : "#94A3B8";
   const finalPoint = chartPoints[chartPoints.length - 1] ?? { x: width - pad, y: baseline };
-  const firstPoint = chartPoints[0] ?? { x: pad, y: baseline };
-  const areaPointsAttr = `${firstPoint.x},${height - pad} ${pointsAttr} ${finalPoint.x},${height - pad}`;
+  const firstPoint = chartPoints[0] ?? { x: startX, y: baseline };
+  const tailEndX = width - pad;
+  const areaPointsAttr = `${firstPoint.x},${height - pad} ${pointsAttr} ${tailEndX},${finalPoint.y} ${tailEndX},${height - pad}`;
   return (
     <svg
       viewBox={`0 0 ${width} ${height}`}
       className="w-full h-[34px]"
+      preserveAspectRatio="none"
       role="img"
       aria-label="player payout trend"
     >
       <line
-        x1={pad}
+        x1={startX}
         y1={baseline}
         x2={width - pad}
         y2={baseline}
@@ -276,13 +296,22 @@ function WinRateTrend({ points }: { points: number[] }) {
         strokeLinecap="round"
         points={pointsAttr}
       />
+      <line
+        x1={finalPoint.x}
+        y1={finalPoint.y}
+        x2={tailEndX}
+        y2={finalPoint.y}
+        stroke={stroke}
+        strokeWidth="2.25"
+        strokeLinecap="round"
+      />
       <circle cx={finalPoint.x} cy={finalPoint.y} r="2.75" fill={stroke} />
     </svg>
   );
 }
 
 /* ── Main view ─────────────────────────────────────────── */
-export function LeaderboardView() {
+export function LeaderboardView({ currentUser = null }: { currentUser?: AuthUser | null }) {
   const [groups, setGroups] = useState<Group[]>([]);
   const [activeGroupId, setActiveGroupId] = useState("");
 
@@ -404,27 +433,75 @@ export function LeaderboardView() {
     () => groups.find((group) => group.id === activeGroupId) ?? null,
     [activeGroupId, groups],
   );
+  const currentUsername = currentUser?.username ?? "";
 
-  const activeGroupMembers = useMemo(
-    () => (activeGroup?.memberUsernames ?? [])
-      .map((username) => username.trim().toLowerCase())
-      .filter(Boolean),
-    [activeGroup],
+  const hasMembershipRoster = useMemo(
+    () => (activeGroup?.memberUsernames ?? []).some((username) => Boolean(normalizeHandle(username))),
+    [activeGroup?.memberUsernames],
   );
+
+  const activeGroupMembers = useMemo(() => {
+    const ordered: string[] = [];
+    const seen = new Set<string>();
+    for (const username of activeGroup?.memberUsernames ?? []) {
+      const key = normalizeHandle(username);
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      ordered.push(username);
+    }
+    const currentKey = normalizeHandle(currentUsername);
+    if (currentKey && !seen.has(currentKey)) {
+      ordered.push(currentUsername);
+    }
+    return ordered;
+  }, [activeGroup?.memberUsernames, currentUsername]);
 
   const groupPlayers = useMemo(() => {
     if (!activeGroup) return [];
+    const currentKey = normalizeHandle(currentUsername);
+    if (!hasMembershipRoster) {
+      if (!currentKey) return players;
+      const hasCurrentPlayer = players.some((player) => {
+        const github = normalizeHandle(player.github);
+        const name = normalizeHandle(player.name);
+        return github === currentKey || name === currentKey;
+      });
+      if (hasCurrentPlayer) return players;
+      return [...players, fromUsername(currentUsername)];
+    }
     if (!activeGroupMembers.length) return players;
-    const members = new Set(activeGroupMembers);
-    return players.filter((player) => {
-      const github = normalizeHandle(player.github);
-      const name = player.name.trim().toLowerCase();
-      return members.has(github) || members.has(name);
-    });
-  }, [activeGroup, activeGroupMembers, players]);
+    const members = new Set(activeGroupMembers.map((username) => normalizeHandle(username)));
+    const playerByMember = new Map<string, Player>();
+
+    for (const player of players) {
+      const githubKey = normalizeHandle(player.github);
+      if (githubKey && members.has(githubKey) && !playerByMember.has(githubKey)) {
+        playerByMember.set(githubKey, player);
+      }
+
+      const nameKey = normalizeHandle(player.name);
+      if (nameKey && members.has(nameKey) && !playerByMember.has(nameKey)) {
+        playerByMember.set(nameKey, player);
+      }
+    }
+
+    const seenMembers = new Set<string>();
+    return activeGroupMembers
+      .map((username): Player | null => {
+        const memberKey = normalizeHandle(username);
+        if (!memberKey || seenMembers.has(memberKey)) return null;
+        seenMembers.add(memberKey);
+
+        const matched = playerByMember.get(memberKey);
+        if (matched) return matched;
+
+        return fromUsername(username);
+      })
+      .filter((player): player is Player => Boolean(player));
+  }, [activeGroup, activeGroupMembers, currentUsername, hasMembershipRoster, players]);
 
   const sorted = useMemo(
-    () => [...groupPlayers].sort((a, b) => b.sol - a.sol),
+    () => [...groupPlayers].sort((a, b) => b.sol - a.sol || a.name.localeCompare(b.name)),
     [groupPlayers],
   );
 
@@ -493,7 +570,7 @@ export function LeaderboardView() {
       }
     }
 
-    for (const username of activeGroup?.memberUsernames ?? []) {
+    for (const username of activeGroupMembers) {
       const key = normalizeHandle(username);
       if (!key || map.has(key)) continue;
       map.set(key, {
@@ -503,7 +580,7 @@ export function LeaderboardView() {
       });
     }
     return map;
-  }, [activeGroup?.memberUsernames, players]);
+  }, [activeGroupMembers, players]);
 
   const betPerformance = useMemo(() => {
     type MutableBetPerformance = BetPerformance;
@@ -665,7 +742,7 @@ export function LeaderboardView() {
         </div>
       </div>
 
-      {activeGroup && activeGroupMembers.length === 0 && (
+      {activeGroup && !hasMembershipRoster && (
         <div className="px-5 py-2 border-b border-border" style={{ background: "var(--muted)" }}>
           <Mono className="text-muted-foreground" style={{ fontSize: "10px" } as React.CSSProperties}>
             Group membership roster is missing, so this view currently shows all available leaderboard profiles.
