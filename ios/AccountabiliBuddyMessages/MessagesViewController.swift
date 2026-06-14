@@ -12,17 +12,26 @@ final class MessagesViewController: MSMessagesAppViewController {
 
     override func willBecomeActive(with conversation: MSConversation) {
         super.willBecomeActive(with: conversation)
-        Task {
-            await updateParticipants(from: conversation)
-            await viewModel.openFromIncomingURL(conversation.selectedMessage?.url)
-        }
+        openSelectedMessage(in: conversation)
     }
 
     override func didSelect(_ message: MSMessage, conversation: MSConversation) {
         super.didSelect(message, conversation: conversation)
+        requestPresentationStyle(.expanded)
+        openSelectedMessage(message, in: conversation)
+    }
+
+    override func didTransition(to presentationStyle: MSMessagesAppPresentationStyle) {
+        super.didTransition(to: presentationStyle)
+        guard presentationStyle == .expanded, let conversation = activeConversation else { return }
+        openSelectedMessage(in: conversation)
+    }
+
+    private func openSelectedMessage(_ message: MSMessage? = nil, in conversation: MSConversation) {
+        let url = message?.url ?? conversation.selectedMessage?.url
         Task {
             await updateParticipants(from: conversation)
-            await viewModel.openFromIncomingURL(message.url)
+            await viewModel.openFromIncomingURL(url)
         }
     }
 
