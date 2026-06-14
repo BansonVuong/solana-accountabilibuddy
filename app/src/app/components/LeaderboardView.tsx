@@ -427,16 +427,49 @@ export function LeaderboardView() {
   const groupPlayers = useMemo(() => {
     if (!activeGroup) return [];
     if (!activeGroupMembers.length) return players;
-    const members = new Set(activeGroupMembers);
-    return players.filter((player) => {
-      const github = normalizeHandle(player.github);
-      const name = player.name.trim().toLowerCase();
-      return members.has(github) || members.has(name);
-    });
+    const members = new Set(activeGroupMembers.map((username) => normalizeHandle(username)));
+    const playerByMember = new Map<string, Player>();
+
+    for (const player of players) {
+      const githubKey = normalizeHandle(player.github);
+      if (githubKey && members.has(githubKey) && !playerByMember.has(githubKey)) {
+        playerByMember.set(githubKey, player);
+      }
+
+      const nameKey = normalizeHandle(player.name);
+      if (nameKey && members.has(nameKey) && !playerByMember.has(nameKey)) {
+        playerByMember.set(nameKey, player);
+      }
+    }
+
+    const seenMembers = new Set<string>();
+    return activeGroup.memberUsernames
+      .map((username): Player | null => {
+        const memberKey = normalizeHandle(username);
+        if (!memberKey || seenMembers.has(memberKey)) return null;
+        seenMembers.add(memberKey);
+
+        const matched = playerByMember.get(memberKey);
+        if (matched) return matched;
+
+        return {
+          rank: 0,
+          name: username,
+          initials: toInitials(username),
+          github: username,
+          sol: 0,
+          solDelta: 0,
+          wins: 0,
+          disputes: 0,
+          streak: 0,
+          streakDir: "neutral",
+        };
+      })
+      .filter((player): player is Player => Boolean(player));
   }, [activeGroup, activeGroupMembers, players]);
 
   const sorted = useMemo(
-    () => [...groupPlayers].sort((a, b) => b.sol - a.sol),
+    () => [...groupPlayers].sort((a, b) => b.sol - a.sol || a.name.localeCompare(b.name)),
     [groupPlayers],
   );
 
