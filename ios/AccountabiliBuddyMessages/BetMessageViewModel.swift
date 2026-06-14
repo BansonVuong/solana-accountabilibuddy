@@ -114,6 +114,11 @@ final class BetMessageViewModel: ObservableObject {
             await linkCurrentMessagesIdentity()
             await refreshConversationState()
             await synchronizeInitializedConversation()
+            // If they opened the app by tapping an invite card before signing in, finish the
+            // join now instead of leaving them on a manual "Join conversation" button.
+            if conversation?.joined != true {
+                await joinPendingConversation()
+            }
             infoMessage = isCreatingAccount ? "Account created." : "Signed in."
         } catch {
             errorMessage = error.localizedDescription
@@ -147,15 +152,18 @@ final class BetMessageViewModel: ObservableObject {
             pendingConversationId = conversationId
             await bootstrap()
             guard isSignedIn else { return }
+            // Tapping the invite card IS the join action. If we're already a joined member
+            // of this exact conversation just refresh it; otherwise join automatically so
+            // detection never depends on the recipient also finding a separate "Join" button.
+            if conversation?.id == conversationId, conversation?.joined == true {
+                await refreshConversation(showErrors: false)
+                return
+            }
             let savedConversationId = conversationFingerprint.flatMap {
                 defaults.string(forKey: conversationKeyPrefix + $0)
             }
-            let currentConversationId = conversation?.id ?? savedConversationId
-            if let currentConversationId, currentConversationId != conversationId {
-                await joinConversation(conversationId, switchedFromAnotherConversation: true)
-                return
-            }
-            await loadPendingConversation(conversationId)
+            let switched = (conversation?.id ?? savedConversationId) != nil
+            await joinConversation(conversationId, switchedFromAnotherConversation: switched)
             return
         }
         guard let id = Self.betId(from: url) else { return }
@@ -249,6 +257,21 @@ final class BetMessageViewModel: ObservableObject {
             solBalance: nil
         ))
         infoMessage = "Invite card ready to send again."
+    }
+
+    /// Clears the locally cached conversation for this thread so a stale account can start
+    /// fresh. Does not delete the server conversation — it just stops auto-reloading the old
+    /// one, so the next Initialize (or invite-card tap) rebinds this device cleanly.
+    func resetConversation() {
+        if let fingerprint = conversationFingerprint {
+            defaults.removeObject(forKey: conversationKeyPrefix + fingerprint)
+        }
+        conversation = nil
+        pendingConversation = nil
+        pendingConversationId = nil
+        recipientCandidates = []
+        recipientUsername = ""
+        infoMessage = "Cleared cached conversation. Initialize on one device, then tap that fresh card on the other."
     }
 
     func refreshConversation(showErrors: Bool = true) async {
@@ -541,10 +564,32 @@ final class BetMessageViewModel: ObservableObject {
 
     private func synchronizeInitializedConversation() async {
         guard !conversationParticipantIds.isEmpty else { return }
+
+        // The participant fingerprint is only stable on *this* device. Apple's
+        // participant UUIDs are not correlatable across devices, so our fingerprint can
+        // never match the other participants'. Once we've joined a conversation (always
+        // via an invite card — the one reliable cross-device link), never replace it with
+        // a fingerprint-derived one, or we'd silently drop back to a solo conversation and
+        // "lose" everyone who already joined.
+        if let conversation, conversation.joined { return }
+
         let savedConversationId = conversationFingerprint.flatMap {
             defaults.string(forKey: conversationKeyPrefix + $0)
         }
         guard conversation != nil || savedConversationId != nil else { return }
+
+        // Prefer reloading the exact conversation this device already knows about over
+        // minting a duplicate keyed by our local fingerprint.
+        if let savedConversationId,
+           let reloaded = try? await client.fetchConversation(id: savedConversationId),
+           reloaded.joined {
+            conversation = reloaded
+            pendingConversation = nil
+            pendingConversationId = nil
+            refreshRecipientCandidates()
+            return
+        }
+
         do {
             let shared = try await client.createConversation(participantIds: conversationParticipantIds).conversation
             conversation = shared

@@ -195,6 +195,23 @@ struct BetMessageRootView: View {
                 .buttonStyle(.borderedProminent)
                 .disabled(viewModel.isBusy)
             }
+
+            if let cid = viewModel.conversation?.id ?? viewModel.pendingConversation?.id {
+                Divider()
+                HStack {
+                    Text("id …\(cid.suffix(6))")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                    Spacer()
+                    Button(role: .destructive) {
+                        viewModel.resetConversation()
+                    } label: {
+                        Text("Reset").font(.caption)
+                    }
+                    .buttonStyle(.borderless)
+                    .disabled(viewModel.isBusy)
+                }
+            }
         }
         .padding(12)
         .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12))
